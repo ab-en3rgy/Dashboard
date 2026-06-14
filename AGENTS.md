@@ -4,6 +4,7 @@ Rules
 - Increment the version on every code edit.
 - Everything in the dashboard UI must stay in English.
 - Prefer small, targeted changes over broad rewrites.
+- Make changes locally first, then commit, push, and deploy to the VPS from `main`.
 
 Read first
 - `campaign_builder.php` - Campaign Builder page and front-end logic.
