@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.9
+// @version 1.0.10
 // GET /api/streams.php?range=30d
 
 declare(strict_types=1);
@@ -1099,13 +1099,13 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
     $params = [
         ':date_from' => $dateFrom,
         ':date_to' => $dateTo,
-        ':geo_mid' => '%\\_' . $geo . '\\_%',
-        ':geo_end' => '%\\_' . $geo,
-        ':geo_space' => '%\\_' . $geo . ' %',
+        ':stream_geo_mid' => '%\\_' . $geo . '\\_%',
+        ':stream_geo_end' => '%\\_' . $geo,
+        ':stream_geo_space' => '%\\_' . $geo . ' %',
     ];
     $where = [
         'id.date BETWEEN :date_from AND :date_to',
-        "(c.name ILIKE :geo_mid ESCAPE '\\' OR c.name ILIKE :geo_end ESCAPE '\\' OR c.name ILIKE :geo_space ESCAPE '\\')",
+        "(c.name ILIKE :stream_geo_mid ESCAPE '\\' OR c.name ILIKE :stream_geo_end ESCAPE '\\' OR c.name ILIKE :stream_geo_space ESCAPE '\\')",
     ];
 
     if (!empty($_GET['bm_id'])) {
