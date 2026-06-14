@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.452
+// @version 1.4.453
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -205,13 +205,17 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .streams-table .tdi{min-height:36px;padding:6px 8px}
 .streams-table .num{font-size:12px}
 .streams-table .offer-name,.streams-table .streams-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.streams-col-th{position:sticky}
-.streams-col-th.dragging{opacity:.45}
+.streams-col-th{position:sticky;cursor:grab}
+.streams-col-th.dragging{opacity:.45;cursor:grabbing}
+.streams-col-dragging,.streams-col-dragging *{cursor:grabbing!important;user-select:none!important}
 .streams-col-th .thi{padding-right:34px}
-.stream-drag-handle{position:absolute;right:24px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text4);opacity:0;cursor:grab;user-select:none}
-.streams-col-th:hover .stream-drag-handle{opacity:1}
+.stream-drag-handle{position:absolute;right:24px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text4);opacity:.45;cursor:grab;user-select:none}
+.streams-col-th:hover .stream-drag-handle,.streams-col-th.dragging .stream-drag-handle{opacity:1}
 .streams-col-th.is-drag-target{box-shadow:inset 0 -2px 0 var(--blue)}
 .streams-col-th.is-drag-target .thi{color:var(--blue)}
+.streams-head-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.streams-head-actions .width-reset-btn{height:28px;padding:0 9px;font-size:11px}
+.streams-head-actions .width-reset-btn.icon{width:28px}
 .rules-verdict{display:inline-flex;align-items:center;max-width:120px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:850;text-transform:uppercase;background:var(--bg);border:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help}
 .rules-verdict.stop,.rules-verdict.pause,.rules-verdict.pause_today,.rules-verdict.hold_stop,.rules-verdict.manual_stop{color:var(--red);background:var(--red-bg);border-color:#fecaca}
 .rules-verdict.start,.rules-verdict.restart_candidate,.rules-verdict.protect,.rules-verdict.ok{color:var(--green);background:var(--green-bg);border-color:#bbf7d0}
@@ -2920,6 +2924,79 @@ function resetTableColumnWidths() {
     renderCurrentTable();
 }
 
+function clearTableColumnWidths(key) {
+    const state = loadTableColWidthsState();
+    if (!state[key]) return;
+    delete state[key];
+    saveTableColWidthsState();
+}
+
+function measureTableColumnContentWidth(table, colIndex, minWidth = 60) {
+    if (!table) return minWidth;
+    let width = minWidth;
+    const rows = [...table.rows];
+    rows.forEach(row => {
+        const cell = row?.cells?.[colIndex];
+        if (!cell) return;
+        const cellWidth = Math.ceil(cell.scrollWidth || cell.getBoundingClientRect().width || cell.offsetWidth || 0) + 18;
+        if (cellWidth > width) width = cellWidth;
+    });
+    return Math.max(minWidth, width);
+}
+
+function autoFitTableColumn(table, key, colIndex) {
+    const colgroup = table?.querySelector('colgroup');
+    const headRow = table?.tHead?.rows?.[0];
+    if (!colgroup || !headRow || colIndex < 0) return;
+    const cols = [...colgroup.children];
+    const th = headRow.cells[colIndex];
+    if (!cols[colIndex] || !th) return;
+    const width = Number(th?.dataset?.fixedWidth || 0) > 0
+        ? Number(th.dataset.fixedWidth)
+        : measureTableColumnContentWidth(table, colIndex, 60);
+    cols[colIndex].style.width = `${width}px`;
+    const keys = [...headRow.cells].map((cell, index) => tableColumnKey(cell, index));
+    syncTableColWidths(table, key, keys, colgroup);
+}
+
+function autoFitTableColumnByHandle(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    const th = handle?.closest?.('th');
+    const table = th?.closest('table');
+    const key = getTableKey(table);
+    const colIndex = Number(th?.dataset?.colIndex || -1);
+    if (!table || !key || colIndex < 0) return;
+    autoFitTableColumn(table, key, colIndex);
+}
+
+function resetStreamsColumnWidths(mode='') {
+    const modes = mode ? [mode] : ['all', 'detail'];
+    modes.forEach(m => clearTableColumnWidths(`streams-${m}`));
+    renderStreamsTable();
+}
+
+function fitStreamsColumnWidths(mode='') {
+    const modes = mode ? [mode] : ['all', 'detail'];
+    const currentMode = isAllStreamsSelected() ? 'all' : 'detail';
+    modes.forEach(m => {
+        const table = document.querySelector(`table[data-stream-table="1"][data-stream-mode="${m}"]`);
+        if (!table) return;
+        const key = getTableKey(table);
+        const headRow = table?.tHead?.rows?.[0];
+        if (!key || !headRow) return;
+        const keys = [...headRow.cells].map((cell, index) => tableColumnKey(cell, index));
+        [...headRow.cells].forEach((cell, index) => {
+            const width = measureTableColumnContentWidth(table, index, Number(cell?.dataset?.fixedWidth || 0) > 0 ? Number(cell.dataset.fixedWidth) : 60);
+            const col = table.querySelector(`colgroup col:nth-child(${index + 1})`);
+            if (col) col.style.width = `${width}px`;
+        });
+        syncTableColWidths(table, key, keys, table.querySelector('colgroup'));
+    });
+    if (currentMode === 'all' || currentMode === 'detail') renderStreamsTable();
+}
+
 function clamp(n, min, max) {
     return Math.max(min, Math.min(max, n));
 }
@@ -3145,6 +3222,7 @@ function initColumnResizing(root) {
             handle.setAttribute('aria-hidden', 'true');
             handle.title = 'Drag to resize';
             handle.addEventListener('mousedown', startTableColumnResize);
+            handle.addEventListener('dblclick', autoFitTableColumnByHandle);
             handle.addEventListener('pointerdown', ev => {
                 if (ev.pointerType && ev.pointerType !== 'mouse') startTableColumnResize(ev);
             });
@@ -5179,8 +5257,8 @@ function streamTh(col, mode='detail') {
     const align = col.align === 'left' ? 'left' : '';
     const cls = [col.cls, active ? 'active' : ''].filter(Boolean).join(' ');
     const width = col.width ? ` style="width:${col.width}px;min-width:${col.width}px;max-width:${col.width}px"` : '';
-    return `<th class="resizable-th streams-col-th ${cls}" data-col-key="${escAttr(col.key)}" data-stream-mode="${mode}" draggable="true"${width}
-        ondragstart="startStreamColumnDrag(event)" ondragover="allowStreamColumnDrop(event)" ondrop="dropStreamColumn(event)" ondragend="endStreamColumnDrag(event)">
+    return `<th class="resizable-th streams-col-th ${cls}" data-col-key="${escAttr(col.key)}" data-stream-mode="${mode}"${width}
+        onpointerdown="startStreamColumnDrag(event)">
         <div class="thi ${align==='left'?'left':''}" onclick="sortStreamsBy('${col.key}')">${align==='left'?col.label:''}<span class="sort-ico ${dir}">${SORT_ICO}</span>${align!=='left'?col.label:''}</div>
         <span class="stream-drag-handle" aria-hidden="true" title="Drag to reorder">::</span>
     </th>`;
@@ -5188,6 +5266,7 @@ function streamTh(col, mode='detail') {
 
 function sortStreamsBy(col) {
     if (_streamsColumnDrag.active) return;
+    if (Date.now() < (_streamsColumnDrag.suppressSortUntil || 0)) return;
     const ts = state.tabs.streams;
     ts.sortDir = ts.sortCol === col ? (ts.sortDir === 'desc' ? 'asc' : 'desc') : 'desc';
     ts.sortCol = col;
@@ -5196,64 +5275,91 @@ function sortStreamsBy(col) {
 }
 
 function startStreamColumnDrag(event) {
+    if (event.button !== undefined && event.button !== 0) return;
     const th = event.currentTarget?.closest?.('th');
     if (!th) return;
-    _streamsColumnDrag = {
-        mode: String(th.dataset.streamMode || 'detail'),
-        key: String(th.dataset.colKey || ''),
+    if (event.target?.closest?.('.th-resize-handle')) return;
+    const mode = String(th.dataset.streamMode || 'detail');
+    const key = String(th.dataset.colKey || '');
+    if (!mode || !key) return;
+
+    const state = {
+        mode,
+        key,
         active: true,
+        dragging: false,
+        suppressSortUntil: 0,
+        startX: event.clientX,
+        startY: event.clientY,
+        sourceTh: th,
+        targetKey: '',
     };
-    th.classList.add('dragging');
-    if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', _streamsColumnDrag.key);
-    }
-}
+    _streamsColumnDrag = state;
 
-function allowStreamColumnDrop(event) {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    const th = event.currentTarget?.closest?.('th');
-    if (th) th.classList.add('is-drag-target');
-}
-
-function endStreamColumnDrag(event) {
-    const th = event.currentTarget?.closest?.('th');
-    if (th) {
-        th.classList.remove('dragging');
-        th.classList.remove('is-drag-target');
-    }
-    window.setTimeout(() => {
-        _streamsColumnDrag = { mode: '', key: '', active: false };
+    const clearTargets = () => {
         document.querySelectorAll('.streams-col-th.is-drag-target').forEach(el => el.classList.remove('is-drag-target'));
-    }, 0);
-}
+    };
 
-function dropStreamColumn(event) {
-    event.preventDefault();
-    const targetTh = event.currentTarget?.closest?.('th');
-    if (!targetTh) return;
-    const mode = String(targetTh.dataset.streamMode || '');
-    const targetKey = String(targetTh.dataset.colKey || '');
-    const sourceKey = _streamsColumnDrag.key || String(event.dataTransfer?.getData('text/plain') || '');
-    if (!mode || !sourceKey || sourceKey === targetKey || mode !== _streamsColumnDrag.mode) {
-        endStreamColumnDrag(event);
-        return;
-    }
+    const updateTarget = (clientX, clientY) => {
+        const el = document.elementFromPoint(clientX, clientY);
+        const targetTh = el?.closest?.('th.streams-col-th');
+        if (!targetTh || String(targetTh.dataset.streamMode || '') !== state.mode || String(targetTh.dataset.colKey || '') === state.key) {
+            state.targetKey = '';
+            clearTargets();
+            return;
+        }
+        state.targetKey = String(targetTh.dataset.colKey || '');
+        clearTargets();
+        targetTh.classList.add('is-drag-target');
+    };
 
-    const current = streamColumns(mode).map(col => col.key);
-    const from = current.indexOf(sourceKey);
-    const to = current.indexOf(targetKey);
-    if (from < 0 || to < 0) {
-        endStreamColumnDrag(event);
-        return;
+    const finish = ev => {
+        window.removeEventListener('pointermove', move, true);
+        window.removeEventListener('pointerup', finish, true);
+        window.removeEventListener('pointercancel', finish, true);
+        const wasDragging = state.dragging;
+        clearTargets();
+        if (state.sourceTh) state.sourceTh.classList.remove('dragging');
+        document.body.classList.remove('streams-col-dragging');
+        state.active = false;
+        state.dragging = false;
+
+        if (wasDragging && state.targetKey && state.targetKey !== state.key) {
+            const current = streamColumns(state.mode).map(col => col.key);
+            const from = current.indexOf(state.key);
+            const to = current.indexOf(state.targetKey);
+            if (from >= 0 && to >= 0) {
+                const next = [...current];
+                next.splice(to, 0, next.splice(from, 1)[0]);
+                setStreamColumnOrder(state.mode, next);
+                renderStreamsTable();
+            }
+            state.suppressSortUntil = Date.now() + 250;
+        }
+        window.setTimeout(() => {
+            if (_streamsColumnDrag === state) _streamsColumnDrag = { mode: '', key: '', active: false, dragging: false, suppressSortUntil: 0, startX: 0, startY: 0, sourceTh: null, targetKey: '' };
+        }, 0);
+    };
+
+    const move = ev => {
+        const dx = ev.clientX - state.startX;
+        const dy = ev.clientY - state.startY;
+        if (!state.dragging) {
+            if (Math.hypot(dx, dy) < 5) return;
+            state.dragging = true;
+            document.body.classList.add('streams-col-dragging');
+            state.sourceTh?.classList.add('dragging');
+        }
+        ev.preventDefault();
+        updateTarget(ev.clientX, ev.clientY);
+    };
+
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+    if (event.pointerId !== undefined && th.setPointerCapture) {
+        try { th.setPointerCapture(event.pointerId); } catch (e) {}
     }
-    const next = [...current];
-    next.splice(to, 0, next.splice(from, 1)[0]);
-    setStreamColumnOrder(mode, next);
-    _streamsColumnDrag = { mode: '', key: '', active: false };
-    document.querySelectorAll('.streams-col-th.is-drag-target').forEach(el => el.classList.remove('is-drag-target'));
-    renderStreamsTable();
 }
 
 function streamMetricCell(row, key) {
@@ -5312,6 +5418,13 @@ function streamRankWeightCell(rank, row, totalClicks) {
     </div></div></td>`;
 }
 
+function streamHeadActions(mode) {
+    return `<div class="streams-head-actions">
+        <button class="width-reset-btn" type="button" onclick="fitStreamsColumnWidths('${mode}')" title="Auto fit widths">Auto fit</button>
+        <button class="width-reset-btn" type="button" onclick="resetStreamsColumnWidths('${mode}')" title="Reset widths">Reset widths</button>
+    </div>`;
+}
+
 function renderAllStreamsTable() {
     const tbl = document.getElementById('streamsTbl');
     const head = document.getElementById('streamsHead');
@@ -5329,7 +5442,10 @@ function renderAllStreamsTable() {
                 <div class="streams-title">All streams</div>
                 <div class="streams-sub">${campaignName ? `Campaign: ${esc(campaignName)}  |  ` : ''}${fN(rows.length)} streams in the current report range</div>
             </div>
-            <div class="streams-sub" style="margin-left:auto">Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(total.revenue)}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</div>`;
+            <div class="streams-sub" style="margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+                <span>Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(total.revenue)}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</span>
+                ${streamHeadActions('all')}
+            </div>`;
     }
 
     rows = [...rows];
@@ -5423,7 +5539,10 @@ function renderStreamsTable() {
                 <div class="streams-title">${esc(stream.stream_name || ((stream.geo || 'XX') + ' stream'))}</div>
                 <div class="streams-sub">Campaign: ${esc(stream.campaign_name || '-')}  |  Stream ID ${esc(stream.stream_id || '')}</div>
             </div>
-            <div class="streams-sub" style="margin-left:auto">Ranked offers: ${fN(rankedCount)} / ${fN(totalCount)}  |  Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(streamValue(total, 'revenue'))}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</div>`;
+            <div class="streams-sub" style="margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+                <span>Ranked offers: ${fN(rankedCount)} / ${fN(totalCount)}  |  Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(streamValue(total, 'revenue'))}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</span>
+                ${streamHeadActions('detail')}
+            </div>`;
     }
 
     let rows = [...rankedRows];
