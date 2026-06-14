@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.449
+// @version 1.4.451
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -199,6 +199,19 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .streams-select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-bg)}
 .streams-title{font-size:14px;font-weight:800;color:var(--text)}
 .streams-sub{font-size:12px;color:var(--text3)}
+.streams-table-wrap{min-width:0}
+#streamsTbl table.streams-table{table-layout:fixed;min-width:100%;width:100%}
+.streams-table th,.streams-table td{overflow:hidden}
+.streams-table .tdi{min-height:36px;padding:6px 8px}
+.streams-table .num{font-size:12px}
+.streams-table .offer-name,.streams-table .streams-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.streams-col-th{position:sticky}
+.streams-col-th.dragging{opacity:.45}
+.streams-col-th .thi{padding-right:18px}
+.stream-drag-handle{position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text4);opacity:0;cursor:grab;user-select:none}
+.streams-col-th:hover .stream-drag-handle{opacity:1}
+.streams-col-th.is-drag-target{box-shadow:inset 0 -2px 0 var(--blue)}
+.streams-col-th.is-drag-target .thi{color:var(--blue)}
 .rules-verdict{display:inline-flex;align-items:center;max-width:120px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:850;text-transform:uppercase;background:var(--bg);border:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help}
 .rules-verdict.stop,.rules-verdict.pause,.rules-verdict.pause_today,.rules-verdict.hold_stop,.rules-verdict.manual_stop{color:var(--red);background:var(--red-bg);border-color:#fecaca}
 .rules-verdict.start,.rules-verdict.restart_candidate,.rules-verdict.protect,.rules-verdict.ok{color:var(--green);background:var(--green-bg);border-color:#bbf7d0}
@@ -943,6 +956,31 @@ const REPORT_FILTERS_BY_VIEW = {
     geocabs: [],
     tasks: [],
     rules_check: ['geo', 'bm_id', 'account_id', 'delivery', 'launch_date', 'ad_name', 'v1_verdict', 'v2_verdict'],
+};
+const STREAMS_COLUMN_ORDER_KEY = 'fb_ads_dashboard_streams_column_order_v1';
+const STREAMS_COLUMN_DEFS = {
+    all: [
+        { key: 'stream_name', label: 'Stream', align: 'left', width: 340 },
+        { key: 'report_clicks', label: 'Clicks', width: 92 },
+        { key: 'regs', label: 'Regs', width: 92 },
+        { key: 'deps', label: 'Deps', width: 92 },
+        { key: 'revenue', label: 'Revenue', width: 124 },
+        { key: 'epc', label: 'EPC', width: 100 },
+    ],
+    detail: [
+        { key: 'epc_rank', label: 'Rank', width: 82 },
+        { key: 'offer_name', label: 'Offer', align: 'left', width: 300 },
+        { key: 'share', label: 'Weight', width: 90, cls: 'stream-share-col' },
+        { key: 'recommended_weight', label: 'Recommended', width: 108 },
+        { key: 'report_clicks', label: 'Clicks', width: 86 },
+        { key: 'regs', label: 'Regs', width: 86 },
+        { key: 'deps', label: 'Deps', width: 86 },
+        { key: 'revenue', label: 'Revenue', width: 120 },
+        { key: 'epc', label: 'EPC', width: 96 },
+        { key: 'safe_epc', label: 'Safe EPC', width: 104 },
+        { key: 'confidence', label: 'Confidence', width: 104 },
+        { key: 'rank_score', label: 'Mode / Score', width: 138 },
+    ],
 };
 
 // -- STATE ----------------------------------------------------
@@ -5010,6 +5048,7 @@ function streamValue(row, key) {
         case 'geo': return String(row?.geo || '');
         case 'campaign_name': return String(row?.campaign_name || '');
         case 'offer_count': return Number(row?.offer_count ?? (row?.offers || []).length ?? 0);
+        case 'epc_rank': return Number(row?.epc_rank ?? 0);
         case 'report_clicks': return reportClicks;
         case 'clicks': return clicks;
         case 'leads': return leads;
@@ -5088,17 +5127,176 @@ function streamRecommendedWeightCell(r) {
     return `<td><div class="tdi"><span class="num">${!r.rank_excluded && recommendedWeight > 0 ? recommendedWeight.toFixed(1) + '%' : '-'}</span></div></td>`;
 }
 
-function streamTh(label, col, align='right', cls='') {
-    const ts = state.tabs.streams, active = ts.sortCol === col, dir = active ? ts.sortDir : '';
-    return `<th class="${cls}"><div class="thi ${align==='left'?'left':''}" onclick="sortStreamsBy('${col}')">${align==='left'?label:''}<span class="sort-ico ${dir}">${SORT_ICO}</span>${align!=='left'?label:''}</div></th>`;
+let _streamsColumnDrag = { mode: '', key: '', active: false };
+let _streamsColumnOrderState = null;
+
+function loadStreamsColumnOrderState() {
+    if (_streamsColumnOrderState) return _streamsColumnOrderState;
+    try {
+        _streamsColumnOrderState = JSON.parse(localStorage.getItem(STREAMS_COLUMN_ORDER_KEY) || '{}') || {};
+    } catch (e) {
+        _streamsColumnOrderState = {};
+    }
+    return _streamsColumnOrderState;
+}
+
+function saveStreamsColumnOrderState() {
+    try {
+        localStorage.setItem(STREAMS_COLUMN_ORDER_KEY, JSON.stringify(loadStreamsColumnOrderState()));
+    } catch (e) {
+        // Ignore storage failures in private mode or restricted browsers.
+    }
+}
+
+function streamModeKey() {
+    return isAllStreamsSelected() ? 'all' : 'detail';
+}
+
+function streamColumns(mode) {
+    const defs = STREAMS_COLUMN_DEFS[mode] || STREAMS_COLUMN_DEFS.detail;
+    const stored = Array.isArray(loadStreamsColumnOrderState()[mode]) ? loadStreamsColumnOrderState()[mode] : [];
+    const defaultKeys = defs.map(col => col.key);
+    const order = [...stored.filter(key => defaultKeys.includes(key)), ...defaultKeys.filter(key => !stored.includes(key))];
+    return order.map(key => defs.find(col => col.key === key)).filter(Boolean);
+}
+
+function setStreamColumnOrder(mode, order) {
+    const defs = STREAMS_COLUMN_DEFS[mode] || STREAMS_COLUMN_DEFS.detail;
+    const defaultKeys = defs.map(col => col.key);
+    const next = order.filter(key => defaultKeys.includes(key));
+    const normalized = [...next, ...defaultKeys.filter(key => !next.includes(key))];
+    const state = loadStreamsColumnOrderState();
+    state[mode] = normalized;
+    saveStreamsColumnOrderState();
+}
+
+function streamTh(col, mode='detail') {
+    const ts = state.tabs.streams, active = ts.sortCol === col.key, dir = active ? ts.sortDir : '';
+    const align = col.align === 'left' ? 'left' : '';
+    const cls = [col.cls, active ? 'active' : ''].filter(Boolean).join(' ');
+    const width = col.width ? ` style="width:${col.width}px;min-width:${col.width}px;max-width:${col.width}px"` : '';
+    return `<th class="resizable-th streams-col-th ${cls}" data-col-key="${escAttr(col.key)}" data-stream-mode="${mode}" draggable="true"${width}
+        ondragstart="startStreamColumnDrag(event)" ondragover="allowStreamColumnDrop(event)" ondrop="dropStreamColumn(event)" ondragend="endStreamColumnDrag(event)">
+        <div class="thi ${align==='left'?'left':''}" onclick="sortStreamsBy('${col.key}')">${align==='left'?col.label:''}<span class="sort-ico ${dir}">${SORT_ICO}</span>${align!=='left'?col.label:''}</div>
+        <span class="stream-drag-handle" aria-hidden="true" title="Drag to reorder">::</span>
+    </th>`;
 }
 
 function sortStreamsBy(col) {
+    if (_streamsColumnDrag.active) return;
     const ts = state.tabs.streams;
     ts.sortDir = ts.sortCol === col ? (ts.sortDir === 'desc' ? 'asc' : 'desc') : 'desc';
     ts.sortCol = col;
     pushURL({replace:true});
     renderStreamsTable();
+}
+
+function startStreamColumnDrag(event) {
+    const th = event.currentTarget?.closest?.('th');
+    if (!th) return;
+    _streamsColumnDrag = {
+        mode: String(th.dataset.streamMode || 'detail'),
+        key: String(th.dataset.colKey || ''),
+        active: true,
+    };
+    th.classList.add('dragging');
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', _streamsColumnDrag.key);
+    }
+}
+
+function allowStreamColumnDrop(event) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    const th = event.currentTarget?.closest?.('th');
+    if (th) th.classList.add('is-drag-target');
+}
+
+function endStreamColumnDrag(event) {
+    const th = event.currentTarget?.closest?.('th');
+    if (th) {
+        th.classList.remove('dragging');
+        th.classList.remove('is-drag-target');
+    }
+    window.setTimeout(() => {
+        _streamsColumnDrag = { mode: '', key: '', active: false };
+        document.querySelectorAll('.streams-col-th.is-drag-target').forEach(el => el.classList.remove('is-drag-target'));
+    }, 0);
+}
+
+function dropStreamColumn(event) {
+    event.preventDefault();
+    const targetTh = event.currentTarget?.closest?.('th');
+    if (!targetTh) return;
+    const mode = String(targetTh.dataset.streamMode || '');
+    const targetKey = String(targetTh.dataset.colKey || '');
+    const sourceKey = _streamsColumnDrag.key || String(event.dataTransfer?.getData('text/plain') || '');
+    if (!mode || !sourceKey || sourceKey === targetKey || mode !== _streamsColumnDrag.mode) {
+        endStreamColumnDrag(event);
+        return;
+    }
+
+    const current = streamColumns(mode).map(col => col.key);
+    const from = current.indexOf(sourceKey);
+    const to = current.indexOf(targetKey);
+    if (from < 0 || to < 0) {
+        endStreamColumnDrag(event);
+        return;
+    }
+    const next = [...current];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    setStreamColumnOrder(mode, next);
+    _streamsColumnDrag = { mode: '', key: '', active: false };
+    document.querySelectorAll('.streams-col-th.is-drag-target').forEach(el => el.classList.remove('is-drag-target'));
+    renderStreamsTable();
+}
+
+function streamMetricCell(row, key) {
+    const value = streamValue(row, key);
+    switch (key) {
+        case 'report_clicks':
+        case 'regs':
+        case 'deps':
+            return `<td><div class="tdi"><span class="num">${value > 0 ? fN(value) : '-'}</span></div></td>`;
+        case 'revenue':
+        case 'epc':
+        case 'safe_epc':
+            return `<td><div class="tdi"><span class="num">${value > 0 ? f$(value) : '-'}</span></div></td>`;
+        case 'confidence':
+            return `<td><div class="tdi"><span class="num">${value > 0 ? (value * 100).toFixed(0) + '%' : '-'}</span></div></td>`;
+        case 'rank_score': {
+            const modeText = row.rank_mode || '-';
+            const modeCls = row.rank_mode ? String(row.rank_mode).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') : '';
+            const scoreText = value > 0 ? value.toFixed(1) : '-';
+            return `<td><div class="tdi"><span class="stream-rec-mode ${modeCls}" title="${escAttr(row.rank_note || '')}">${esc(modeText)}</span><span class="num" style="margin-left:6px">${scoreText}</span></div></td>`;
+        }
+        case 'share':
+            return `<td class="stream-share-col"><div class="tdi"><span class="num">${row.rank_excluded ? '-' : fN(value)}</span></div></td>`;
+        case 'recommended_weight':
+            return streamRecommendedWeightCell(row);
+        case 'epc_rank':
+            return streamRankWeightCell(value, row, Number(row.__stream_total_clicks || 0));
+        case 'stream_name':
+        case 'offer_name':
+            return `<td><div class="tdi left"><div>
+                <div class="offer-name">${esc(row[key] || (key === 'stream_name' ? ((row.geo || 'XX') + ' stream') : ('Offer ' + (row.offer_id || ''))))}</div>
+                ${key === 'stream_name'
+                    ? `<div class="streams-sub">GEO ${esc(row.geo || '-')} | Campaign: ${esc(row.campaign_name || '-')} | Stream ID ${esc(row.stream_id || '')}</div>`
+                    : `<div class="streams-sub">${esc(row.affiliate_network || '-')} | Offer ID ${esc(row.offer_id || '')}</div>`}
+            </div></div></td>`;
+        default:
+            return `<td><div class="tdi"><span class="num">${value > 0 ? fN(value) : '-'}</span></div></td>`;
+    }
+}
+
+function streamCellForMode(mode, colKey, row, ctx = {}) {
+    const nextRow = row && ctx.totalClicks !== undefined ? {...row, __stream_total_clicks: ctx.totalClicks} : row;
+    return streamMetricCell(nextRow, colKey);
+}
+
+function streamRowHtml(mode, columns, row, ctx = {}) {
+    return columns.map(col => streamCellForMode(mode, col.key, row, ctx)).join('');
 }
 
 function streamRankWeightCell(rank, row, totalClicks) {
@@ -5157,39 +5355,33 @@ function renderAllStreamsTable() {
         return;
     }
 
-    let html = `<table><thead><tr>
-        ${streamTh('Stream','stream_name','left')}
-        ${streamTh('Clicks','report_clicks')}
-        ${streamTh('Regs','regs')}
-        ${streamTh('Deps','deps')}
-        ${streamTh('Revenue','revenue')}
-        ${streamTh('EPC','epc')}
+    const columns = streamColumns('all');
+    const totalClicks = rows.reduce((a, r) => a + streamValue(r, 'report_clicks'), 0);
+    const totalEpc = streamValue(total, 'epc');
+    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="all"><colgroup>
+        ${columns.map(col => `<col style="width:${col.width || 120}px">`).join('')}
+    </colgroup><thead><tr>
+        ${columns.map(col => streamTh(col, 'all')).join('')}
     </tr></thead><tbody>`;
 
-    const totalClicks = rows.reduce((a,r)=>a+streamValue(r,'report_clicks'),0);
-    rows.forEach((r) => {
-        const epc = streamValue(r, 'epc');
+    rows.forEach(r => {
         html += `<tr data-stream-id="${escAttr(r.stream_id)}" onclick="setStream(this.dataset.streamId)" style="cursor:pointer">
-            <td><div class="tdi left"><div>
-                <div class="offer-name">${esc(r.stream_name || ((r.geo || 'XX') + ' stream'))}</div>
-                <div class="streams-sub">GEO ${esc(r.geo || '-')} | Campaign: ${esc(r.campaign_name || '-')} | Stream ID ${esc(r.stream_id || '')}</div>
-            </div></div></td>
-            <td><div class="tdi"><span class="num">${streamValue(r, 'report_clicks') > 0 ? fN(streamValue(r, 'report_clicks')) : '-'}</span></div></td>
-            <td><div class="tdi"><span class="num">${streamValue(r, 'regs') > 0 ? fN(streamValue(r, 'regs')) : '-'}</span></div></td>
-            <td><div class="tdi"><span class="num">${streamValue(r, 'deps') > 0 ? fN(streamValue(r, 'deps')) : '-'}</span></div></td>
-            <td><div class="tdi"><span class="num">${streamValue(r, 'revenue') > 0 ? f$(streamValue(r, 'revenue')) : '-'}</span></div></td>
-            <td><div class="tdi"><span class="num">${epc > 0 ? f$(epc) : '-'}</span></div></td>
+            ${streamRowHtml('all', columns, r, { totalClicks })}
         </tr>`;
     });
 
-    const totalEpc = streamValue(total, 'epc');
     html += `</tbody><tfoot><tr class="total-row">
-        <td><div class="tdi left" style="font-size:11.5px;color:var(--text2)">${rows.length} streams</div></td>
-        <td><div class="tdi"><span class="num">${totalClicks > 0 ? fN(totalClicks) : '-'}</span></div></td>
-        <td><div class="tdi"><span class="num">${streamValue(total, 'regs') > 0 ? fN(streamValue(total, 'regs')) : '-'}</span></div></td>
-        <td><div class="tdi"><span class="num">${streamValue(total, 'deps') > 0 ? fN(streamValue(total, 'deps')) : '-'}</span></div></td>
-        <td><div class="tdi"><span class="num">${streamValue(total, 'revenue') > 0 ? f$(streamValue(total, 'revenue')) : '-'}</span></div></td>
-        <td><div class="tdi"><span class="num">${totalEpc > 0 ? f$(totalEpc) : '-'}</span></div></td>
+        ${columns.map(col => {
+            if (col.key === 'stream_name') {
+                return `<td><div class="tdi left" style="font-size:11.5px;color:var(--text2)">${rows.length} streams</div></td>`;
+            }
+            if (col.key === 'report_clicks') return `<td><div class="tdi"><span class="num">${totalClicks > 0 ? fN(totalClicks) : '-'}</span></div></td>`;
+            if (col.key === 'regs') return `<td><div class="tdi"><span class="num">${streamValue(total, 'regs') > 0 ? fN(streamValue(total, 'regs')) : '-'}</span></div></td>`;
+            if (col.key === 'deps') return `<td><div class="tdi"><span class="num">${streamValue(total, 'deps') > 0 ? fN(streamValue(total, 'deps')) : '-'}</span></div></td>`;
+            if (col.key === 'revenue') return `<td><div class="tdi"><span class="num">${streamValue(total, 'revenue') > 0 ? f$(streamValue(total, 'revenue')) : '-'}</span></div></td>`;
+            if (col.key === 'epc') return `<td><div class="tdi"><span class="num">${totalEpc > 0 ? f$(totalEpc) : '-'}</span></div></td>`;
+            return `<td><div class="tdi"><span class="num">-</span></div></td>`;
+        }).join('')}
     </tr></tfoot></table>`;
     tbl.innerHTML = html;
 }
@@ -5254,44 +5446,46 @@ function renderStreamsTable() {
         return;
     }
 
-    let html = `<table><thead><tr>
-        ${streamTh('Rank','rank_score')}
-        ${streamTh('Offer','offer_name','left')}
-        ${streamTh('Weight','share','right','stream-share-col')}
-        ${streamTh('Recommended Weight','recommended_weight')}
-        ${streamTh('Clicks','report_clicks')}
-        ${streamTh('Regs','regs')}
-        ${streamTh('Deps','deps')}
-        ${streamTh('Revenue','revenue')}
-        ${streamTh('EPC','epc')}
-        ${streamTh('Safe EPC','safe_epc')}
-        ${streamTh('Confidence','confidence')}
-        ${streamTh('Mode / Score','rank_score')}
+    const columns = streamColumns('detail');
+    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="detail"><colgroup>
+        ${columns.map(col => `<col style="width:${col.width || 120}px">`).join('')}
+    </colgroup><thead><tr>
+        ${columns.map(col => streamTh(col, 'detail')).join('')}
     </tr></thead><tbody>`;
 
     rows.forEach(r => {
-        const offerTitle = `${r.offer_name || 'Offer ' + r.offer_id}  |  ID ${r.offer_id || ''}`;
         html += `<tr>
-            <td><div class="tdi"><span class="num">${r.epc_rank ? '#' + fN(r.epc_rank) : '-'}</span></div></td>
-            <td><div class="tdi left"><div>
-                <div class="offer-name">${esc(offerTitle)}</div>
-            </div></div></td>
-            <td class="stream-share-col"><div class="tdi"><span class="num">${r.rank_excluded ? '-' : fN(r.share)}</span></div></td>
-            ${streamRecommendedWeightCell(r)}
-            ${streamExactMetricCols(r)}
+            ${streamRowHtml('detail', columns, r)}
         </tr>`;
     });
 
+    const clickTotal = rows.reduce((a, r) => a + streamValue(r, 'report_clicks'), 0);
+    const regTotal = rows.reduce((a, r) => a + streamValue(r, 'regs'), 0);
+    const depTotal = rows.reduce((a, r) => a + streamValue(r, 'deps'), 0);
+    const revenueTotal = rows.reduce((a, r) => a + streamValue(r, 'revenue'), 0);
+    const totalEpc = streamValue(total, 'epc');
+    const safeEpc = streamValue(total, 'safe_epc');
+    const confidence = streamValue(total, 'confidence');
+
     html += `</tbody><tfoot><tr class="total-row">
-        <td><div class="tdi"><span class="num">-</span></div></td>
-        <td><div class="tdi left" style="font-size:11.5px;color:var(--text2)">${rows.length} offers</div></td>
-        <td class="stream-share-col"><div class="tdi"><span class="num">${fN(rows.reduce((a,r)=>a+(isRankableStreamOffer(r)?streamNum(r,'share'):0),0))}</span></div></td>
-        <td><div class="tdi"><span class="num">${rows.some(r=>!r.rank_excluded && streamValue(r,'recommended_weight')>0) ? rows.reduce((a,r)=>a+(!r.rank_excluded?streamValue(r,'recommended_weight'):0),0).toFixed(1) + '%' : '-'}</span></div></td>
-        ${streamExactMetricCols(total)}
+        ${columns.map(col => {
+            if (col.key === 'epc_rank') return `<td><div class="tdi"><span class="num">-</span></div></td>`;
+            if (col.key === 'offer_name') return `<td><div class="tdi left" style="font-size:11.5px;color:var(--text2)">${rows.length} offers</div></td>`;
+            if (col.key === 'share') return `<td class="stream-share-col"><div class="tdi"><span class="num">${fN(rows.reduce((a, r) => a + (isRankableStreamOffer(r) ? streamNum(r, 'share') : 0), 0))}</span></div></td>`;
+            if (col.key === 'recommended_weight') return `<td><div class="tdi"><span class="num">${rows.some(r => !r.rank_excluded && streamValue(r, 'recommended_weight') > 0) ? rows.reduce((a, r) => a + (!r.rank_excluded ? streamValue(r, 'recommended_weight') : 0), 0).toFixed(1) + '%' : '-'}</span></div></td>`;
+            if (col.key === 'report_clicks') return `<td><div class="tdi"><span class="num">${clickTotal > 0 ? fN(clickTotal) : '-'}</span></div></td>`;
+            if (col.key === 'regs') return `<td><div class="tdi"><span class="num">${regTotal > 0 ? fN(regTotal) : '-'}</span></div></td>`;
+            if (col.key === 'deps') return `<td><div class="tdi"><span class="num">${depTotal > 0 ? fN(depTotal) : '-'}</span></div></td>`;
+            if (col.key === 'revenue') return `<td><div class="tdi"><span class="num">${revenueTotal > 0 ? f$(revenueTotal) : '-'}</span></div></td>`;
+            if (col.key === 'epc') return `<td><div class="tdi"><span class="num">${totalEpc > 0 ? f$(totalEpc) : '-'}</span></div></td>`;
+            if (col.key === 'safe_epc') return `<td><div class="tdi"><span class="num">${safeEpc > 0 ? f$(safeEpc) : '-'}</span></div></td>`;
+            if (col.key === 'confidence') return `<td><div class="tdi"><span class="num">${confidence > 0 ? (confidence * 100).toFixed(0) + '%' : '-'}</span></div></td>`;
+            if (col.key === 'rank_score') return `<td><div class="tdi"><span class="stream-rec-mode" style="opacity:.55">-</span></div></td>`;
+            return `<td><div class="tdi"><span class="num">-</span></div></td>`;
+        }).join('')}
     </tr></tfoot></table>`;
     tbl.innerHTML = html;
 }
-
 // -- OFFERS VIEW ----------------------------------------------
 let offerRows = [];
 let _offersChart = null;
