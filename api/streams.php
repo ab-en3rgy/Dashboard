@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.11
+// @version 1.0.12
 // GET /api/streams.php?range=30d
 
 declare(strict_types=1);
@@ -1068,6 +1068,15 @@ function addInFilter(array &$where, array &$params, string $column, string $pref
     $where[] = "{$column}::text IN (" . implode(',', $ph) . ')';
 }
 
+function streamSqlList(PDO $db, array $values): string
+{
+    $quoted = [];
+    foreach ($values as $value) {
+        $quoted[] = $db->quote((string)$value);
+    }
+    return implode(',', $quoted);
+}
+
 function streamMetricSql(): string
 {
     return "
@@ -1096,16 +1105,14 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
         return ['spend' => 0.0, 'clicks' => 0];
     }
 
-    $params = [
-        $dateFrom,
-        $dateTo,
-        '%\\_' . $geo . '\\_%',
-        '%\\_' . $geo,
-        '%\\_' . $geo . ' %',
-    ];
+    $dateFromSql = $db->quote($dateFrom);
+    $dateToSql = $db->quote($dateTo);
+    $geoMidSql = $db->quote('%\\_' . $geo . '\\_%');
+    $geoEndSql = $db->quote('%\\_' . $geo);
+    $geoSpaceSql = $db->quote('%\\_' . $geo . ' %');
     $where = [
-        'id.date BETWEEN ? AND ?',
-        "(c.name ILIKE ? ESCAPE '\\' OR c.name ILIKE ? ESCAPE '\\' OR c.name ILIKE ? ESCAPE '\\')",
+        "id.date BETWEEN {$dateFromSql} AND {$dateToSql}",
+        "(c.name ILIKE {$geoMidSql} ESCAPE '\\' OR c.name ILIKE {$geoEndSql} ESCAPE '\\' OR c.name ILIKE {$geoSpaceSql} ESCAPE '\\')",
     ];
 
     if (!empty($_GET['bm_id'])) {
@@ -1113,17 +1120,12 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
         if (!in_array($bmId, $allowedBmIds, true)) {
             apiError(403, 'BM is not allowed');
         }
-        $where[] = 'aa.bm_id::text = ?';
-        $params[] = $bmId;
+        $where[] = 'aa.bm_id::text = ' . $db->quote($bmId);
     } elseif (($me['role'] ?? '') !== 'admin') {
         if (!$allowedBmIds) {
             return ['spend' => 0.0, 'clicks' => 0];
         }
-        $bmPlaceholders = implode(',', array_fill(0, count($allowedBmIds), '?'));
-        $where[] = 'aa.bm_id::text IN (' . $bmPlaceholders . ')';
-        foreach ($allowedBmIds as $bmId) {
-            $params[] = (string)$bmId;
-        }
+        $where[] = 'aa.bm_id::text IN (' . streamSqlList($db, $allowedBmIds) . ')';
     }
 
     $filterMap = [
@@ -1138,15 +1140,11 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
                 $where[] = '1=0';
                 continue;
             }
-            $placeholders = implode(',', array_fill(0, count($values), '?'));
-            $where[] = "{$column}::text IN ({$placeholders})";
-            foreach ($values as $value) {
-                $params[] = (string)$value;
-            }
+            $where[] = "{$column}::text IN (" . streamSqlList($db, $values) . ')';
         }
     }
 
-    $stmt = $db->prepare("
+    $stmt = $db->query("
         SELECT COALESCE(SUM(id.spend), 0) AS spend,
                COALESCE(SUM(id.clicks), 0) AS clicks
         FROM insights_daily id
@@ -1155,7 +1153,6 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
         JOIN ad_accounts aa ON aa.id = a.ad_account_id
         WHERE " . implode(' AND ', $where) . "
     ");
-    $stmt->execute($params);
 
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     return [
