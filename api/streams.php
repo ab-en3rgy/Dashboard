@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.10
+// @version 1.0.11
 // GET /api/streams.php?range=30d
 
 declare(strict_types=1);
@@ -1097,15 +1097,15 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
     }
 
     $params = [
-        ':date_from' => $dateFrom,
-        ':date_to' => $dateTo,
-        ':stream_geo_mid' => '%\\_' . $geo . '\\_%',
-        ':stream_geo_end' => '%\\_' . $geo,
-        ':stream_geo_space' => '%\\_' . $geo . ' %',
+        $dateFrom,
+        $dateTo,
+        '%\\_' . $geo . '\\_%',
+        '%\\_' . $geo,
+        '%\\_' . $geo . ' %',
     ];
     $where = [
-        'id.date BETWEEN :date_from AND :date_to',
-        "(c.name ILIKE :stream_geo_mid ESCAPE '\\' OR c.name ILIKE :stream_geo_end ESCAPE '\\' OR c.name ILIKE :stream_geo_space ESCAPE '\\')",
+        'id.date BETWEEN ? AND ?',
+        "(c.name ILIKE ? ESCAPE '\\' OR c.name ILIKE ? ESCAPE '\\' OR c.name ILIKE ? ESCAPE '\\')",
     ];
 
     if (!empty($_GET['bm_id'])) {
@@ -1113,10 +1113,17 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
         if (!in_array($bmId, $allowedBmIds, true)) {
             apiError(403, 'BM is not allowed');
         }
-        $where[] = 'aa.bm_id::text = :geo_bm_filter';
-        $params[':geo_bm_filter'] = $bmId;
+        $where[] = 'aa.bm_id::text = ?';
+        $params[] = $bmId;
     } elseif (($me['role'] ?? '') !== 'admin') {
-        addInFilter($where, $params, 'aa.bm_id::text', 'geo_bm_allowed', $allowedBmIds);
+        if (!$allowedBmIds) {
+            return ['spend' => 0.0, 'clicks' => 0];
+        }
+        $bmPlaceholders = implode(',', array_fill(0, count($allowedBmIds), '?'));
+        $where[] = 'aa.bm_id::text IN (' . $bmPlaceholders . ')';
+        foreach ($allowedBmIds as $bmId) {
+            $params[] = (string)$bmId;
+        }
     }
 
     $filterMap = [
@@ -1127,7 +1134,15 @@ function loadStreamGeoFbTotals(PDO $db, array $me, array $allowedBmIds, string $
     foreach ($filterMap as $param => $column) {
         if (!empty($_GET[$param])) {
             $values = array_values(array_filter(array_map('trim', explode(',', (string)$_GET[$param]))));
-            addInFilter($where, $params, $column, 'geo_' . $param, $values);
+            if (!$values) {
+                $where[] = '1=0';
+                continue;
+            }
+            $placeholders = implode(',', array_fill(0, count($values), '?'));
+            $where[] = "{$column}::text IN ({$placeholders})";
+            foreach ($values as $value) {
+                $params[] = (string)$value;
+            }
         }
     }
 
