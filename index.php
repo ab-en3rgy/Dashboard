@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.440
+// @version 1.4.442
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -772,6 +772,8 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
 
 <div id="streamsWrap" style="display:none;flex:1;overflow:hidden;background:var(--surface);flex-direction:column">
   <div class="streams-toolbar">
+    <label for="streamsCampaignSelect">Campaign</label>
+    <select class="streams-select" id="streamsCampaignSelect" onchange="setStreamCampaign(this.value)"></select>
     <label for="streamsSelect">Stream</label>
     <select class="streams-select" id="streamsSelect" onchange="setStream(this.value)"></select>
     <div class="streams-sub" id="streamsSyncInfo"></div>
@@ -965,7 +967,7 @@ const state = {
         topcreo:  { search: '', sortCol: 'stats.profit', sortDir: 'desc' },
         creative_calendar: { search: '' },
         camps_calendar: { search: '' },
-        streams:  { search: '', sortCol: 'rank_score', sortDir: 'desc', stream_id: '' },
+        streams:  { search: '', sortCol: 'rank_score', sortDir: 'desc', stream_id: '', campaign_id: '' },
         geotrends:{ search: '', geo: null, metrics: 'spend,revenue,profit' },
         geodiff:  { search: '', sortCol: 'today.spend', sortDir: 'desc' },
         trends:   { tab: 'campaign', sel: '' },
@@ -1251,7 +1253,7 @@ function pushURL(opts={}) {
         if (ts.delivery) p.set(tab+'_dlv', ts.delivery);
         if (ts.sortCol && ts.sortCol !== def.sortCol) p.set(tab+'_sort', ts.sortCol);
         if (ts.sortDir && ts.sortDir !== def.sortDir) p.set(tab+'_dir',  ts.sortDir);
-        ['period','tab','geo','metrics','bm_id','sel','stream_id','offer_id','offer_geo','status'].forEach(k => {
+        ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (ts[k] && ts[k] !== def[k]) p.set(tab+'_'+k, ts[k]);
         });
     });
@@ -1292,7 +1294,7 @@ function readURL() {
         if ('delivery' in ts) ts.delivery = p.get(tab+'_dlv') || null;
         if ('sortCol' in ts) ts.sortCol = p.get(tab+'_sort') || ts.sortCol;
         if ('sortDir' in ts) ts.sortDir = p.get(tab+'_dir')  || ts.sortDir;
-        ['period','tab','geo','metrics','bm_id','sel','stream_id','offer_id','offer_geo','status'].forEach(k => {
+        ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (k in ts) ts[k] = p.get(tab+'_'+k) || ts[k];
         });
     });
@@ -4842,6 +4844,7 @@ async function loadStreamsData() {
         const params = appendOfferFilters(new URLSearchParams({range: state.range}));
         const wantedGeo = String(state.filters.geo || '').split(',')[0].trim().toUpperCase();
         params.delete('geo');
+        if (state.tabs.streams.campaign_id) params.set('campaign_id', String(state.tabs.streams.campaign_id));
         const requestAllStreams = !String(state.tabs.streams.stream_id || '');
         params.set('stream_id', requestAllStreams ? 'all' : state.tabs.streams.stream_id);
         const res = await fetch('/api/streams.php?' + params.toString());
@@ -4872,6 +4875,10 @@ async function loadStreamsData() {
             state.tabs.streams.stream_id = String(json.data.selected_stream_id);
             pushURL({replace:true});
         }
+        if (state.tabs.streams.campaign_id && streamRows.length && !streamRows.some(s => String(s.campaign_id || '') === String(state.tabs.streams.campaign_id))) {
+            state.tabs.streams.stream_id = '';
+            pushURL({replace:true});
+        }
         let selected = streamRows.find(s => String(s.stream_id) === String(state.tabs.streams.stream_id));
         if (state.tabs.streams.stream_id && !selected && streamRows.length) {
             state.tabs.streams.stream_id = String(streamRows[0].stream_id);
@@ -4889,8 +4896,24 @@ function selectedStream() {
     return streamRows.find(s => String(s.stream_id) === String(state.tabs.streams.stream_id)) || null;
 }
 
+function selectedStreamCampaignName() {
+    const campaignId = String(state.tabs.streams.campaign_id || '');
+    if (!campaignId) return '';
+    const row = streamRows.find(s => String(s.campaign_id || '') === campaignId);
+    return row?.campaign_name || campaignId;
+}
+
 function isAllStreamsSelected() {
     return !String(state.tabs.streams.stream_id || '');
+}
+
+function setStreamCampaign(campaignId) {
+    state.tabs.streams.campaign_id = campaignId && campaignId !== 'all' ? String(campaignId) : '';
+    state.tabs.streams.stream_id = '';
+    state.tabs.streams.sortCol = 'rank_score';
+    state.tabs.streams.sortDir = 'desc';
+    pushURL();
+    loadStreamsData();
 }
 
 function setStream(streamId) {
@@ -4910,21 +4933,45 @@ function setStream(streamId) {
 }
 
 function renderStreamsTabs() {
+    const campaignEl = document.getElementById('streamsCampaignSelect');
     const selectEl = document.getElementById('streamsSelect');
     const syncInfo = document.getElementById('streamsSyncInfo');
-    if (!selectEl) return;
+    if (!campaignEl || !selectEl) return;
     if (!streamRows.length) {
+        campaignEl.innerHTML = '';
+        campaignEl.disabled = true;
         selectEl.innerHTML = '';
         selectEl.disabled = true;
         if (syncInfo) syncInfo.textContent = '';
         return;
     }
+    const currentCampaign = String(state.tabs.streams.campaign_id || '');
     const current = String(state.tabs.streams.stream_id || '');
+    const campaigns = [];
+    const seenCampaigns = new Set();
+    streamRows.forEach(s => {
+        const campaignId = String(s.campaign_id || '').trim();
+        if (!campaignId || seenCampaigns.has(campaignId)) return;
+        seenCampaigns.add(campaignId);
+        campaigns.push({
+            id: campaignId,
+            name: s.campaign_name || campaignId,
+        });
+    });
+    campaigns.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    campaignEl.disabled = false;
+    campaignEl.innerHTML = `<option value="" ${currentCampaign ? '' : 'selected'}>All campaigns</option>` + campaigns.map(c => {
+        const active = String(c.id) === currentCampaign;
+        return `<option value="${escAttr(c.id)}" ${active ? 'selected' : ''}>${esc(c.name)} (${esc(c.id)})</option>`;
+    }).join('');
+    campaignEl.value = currentCampaign || '';
+
     selectEl.disabled = false;
     selectEl.innerHTML = `<option value="all" ${current ? '' : 'selected'}>All streams</option>` + streamRows.map(s => {
         const active = String(s.stream_id) === current;
         const label = s.stream_name || `${s.geo || 'XX'} stream`;
-        return `<option value="${escAttr(s.stream_id)}" ${active ? 'selected' : ''}>${esc(label)} (${esc(s.stream_id)})</option>`;
+        const campaignSuffix = s.campaign_name ? ` · ${s.campaign_name}` : '';
+        return `<option value="${escAttr(s.stream_id)}" ${active ? 'selected' : ''}>${esc(label)}${esc(campaignSuffix)} (${esc(s.stream_id)})</option>`;
     }).join('');
     selectEl.value = current || 'all';
     if (syncInfo) {
@@ -5063,11 +5110,12 @@ function renderAllStreamsTable() {
     }, {clicks:0, leads:0, regs:0, deps:0, conversions:0, revenue:0});
 
     if (head) {
+        const campaignName = selectedStreamCampaignName();
         head.style.display = 'flex';
         head.innerHTML = `
             <div>
                 <div class="streams-title">All streams</div>
-                <div class="streams-sub">${fN(streamRows.length)} streams in the current report range</div>
+                <div class="streams-sub">${campaignName ? `Campaign: ${esc(campaignName)}  |  ` : ''}${fN(streamRows.length)} streams in the current report range</div>
             </div>
             <div class="streams-sub" style="margin-left:auto">Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(total.revenue)}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</div>`;
     }
