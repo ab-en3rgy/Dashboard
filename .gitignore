@@ -1,0 +1,8 @@
+/.backups/
+/uploads/
+/config/local.env
+/*.log
+/*.tar.gz
+/.idea/
+/.vscode/
+/.DS_Store

@@ -1,0 +1,7 @@
+[
+  {"spend_min": 0,   "spend_max": 0.5,  "multiplier": 1.5},
+  {"spend_min": 0.5, "spend_max": 1.5,  "multiplier": 1.2},
+  {"spend_min": 1.5, "spend_max": 3.0,  "multiplier": 1.0},
+  {"spend_min": 3.0, "spend_max": 30.0,  "multiplier": 1.0},  
+  {"spend_min": 30.0, "spend_max": null,  "multiplier": 0.9}
+]

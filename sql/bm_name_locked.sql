@@ -1,0 +1,2 @@
+ALTER TABLE public.business_managers
+    ADD COLUMN IF NOT EXISTS name_locked BOOLEAN NOT NULL DEFAULT FALSE;

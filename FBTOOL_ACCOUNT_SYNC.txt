@@ -1,0 +1,52 @@
+========================================================
+  FBTool Sync by Ad Account
+========================================================
+
+Goal
+----
+Change the FBTool sync flow so statistics are requested per ad account,
+not in one aggregated request per FBTool account.
+
+
+Required flow
+-------------
+1. Load the list of ad accounts for the FBTool account:
+
+   https://fbtool.pro/adaccounts?id=18898025
+
+2. Extract all active ad account IDs from that page / response.
+
+3. Request statistics separately for each ad account:
+
+   https://fbtool.pro/statistics?id=18898025&dates=2026-06-03+-+2026-06-03&status=all&currency=USD&adaccount_status=active&ad_account_id=act_716465367562417
+
+4. Parse and save structure / metrics for each returned ad account independently.
+
+
+Request sequence example
+------------------------
+Step 1:
+  GET https://fbtool.pro/adaccounts?id=18898025
+
+Step 2:
+  For each returned account, for example:
+  GET https://fbtool.pro/statistics?id=18898025&dates=2026-06-03+-+2026-06-03&status=all&currency=USD&adaccount_status=active&ad_account_id=act_716465367562417
+
+
+Notes
+-----
+- Use the FBTool account ID as the top-level container.
+- Use the returned ad account IDs as the second-level iteration.
+- Keep date range formatting exactly as FBTool expects:
+  YYYY-MM-DD+-+YYYY-MM-DD
+- Keep status=all and currency=USD unless a later requirement changes that.
+- Use adaccount_status=active.
+- Always pass a single ad_account_id in each statistics request.
+
+
+Expected benefit
+----------------
+- More stable sync when one account response is broken.
+- Easier debugging of empty or invalid statistics responses.
+- Better visibility into which exact ad account failed.
+

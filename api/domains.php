@@ -1,0 +1,345 @@
+<?php
+// api/domains.php — CRUD for domains_fp (session auth)
+//
+// GET  ?action=list&bm=123&geo=AR
+// POST { action: create|update|delete, ...fields }
+
+require_once __DIR__ . '/_bootstrap.php';
+
+$isAdmin = ($me['role'] === 'admin');
+
+$action = $_GET['action'] ?? '';
+$body   = [];
+if ($method === 'POST') {
+    $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+    $action = $body['action'] ?? $action;
+}
+
+function ensureDomainStatusColumn(PDO $db): void {
+    $db->exec("
+        ALTER TABLE public.domains_fp
+        ADD COLUMN IF NOT EXISTS status varchar(10) NOT NULL DEFAULT 'active'
+    ");
+    $db->exec("
+        UPDATE public.domains_fp
+        SET status = 'active'
+        WHERE status IS NULL OR status = ''
+    ");
+    $db->exec("
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'domains_fp_status_chk'
+            ) THEN
+                ALTER TABLE public.domains_fp
+                ADD CONSTRAINT domains_fp_status_chk
+                CHECK (status IN ('active', 'banned'));
+            END IF;
+        END $$;
+    ");
+}
+
+function ensureDomainUserColumn(PDO $db): void {
+    $db->exec("
+        ALTER TABLE public.domains_fp
+        ADD COLUMN IF NOT EXISTS user_id int REFERENCES public.users(id) ON DELETE SET NULL
+    ");
+    $db->exec("
+        UPDATE public.domains_fp
+        SET user_id = (
+            SELECT id
+            FROM public.users
+            WHERE role = 'admin'
+            ORDER BY id
+            LIMIT 1
+        )
+        WHERE user_id IS NULL
+          AND EXISTS (SELECT 1 FROM public.users WHERE role = 'admin')
+    ");
+    $db->exec("
+        CREATE INDEX IF NOT EXISTS idx_dfp_user ON public.domains_fp (user_id)
+    ");
+}
+
+function ensureDomainDeliveryColumns(PDO $db): void {
+    $db->exec("
+        ALTER TABLE public.domains_fp
+        ADD COLUMN IF NOT EXISTS page_id varchar(255) NOT NULL DEFAULT ''
+    ");
+    $db->exec("
+        ALTER TABLE public.domains_fp
+        ADD COLUMN IF NOT EXISTS pixel_id varchar(255) NOT NULL DEFAULT ''
+    ");
+}
+
+function loadBmOptions(PDO $db, array $me, bool $isAdmin): array {
+    if ($isAdmin) {
+        $stmt = $db->query("
+            SELECT id::text AS bm_id, name AS bm_name
+            FROM public.business_managers
+            WHERE is_active = TRUE
+            ORDER BY name, id
+        ");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT bm.id::text AS bm_id, bm.name AS bm_name
+        FROM public.business_managers bm
+        JOIN public.user_bm_accounts uba ON uba.bm_id = bm.id
+        WHERE uba.user_id = :uid
+          AND bm.is_active = TRUE
+        ORDER BY bm.name, bm.id
+    ");
+    $stmt->execute(['uid' => (int)$me['id']]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+ensureDomainStatusColumn($db);
+ensureDomainUserColumn($db);
+ensureDomainDeliveryColumns($db);
+
+// ── Validation ────────────────────────────────────────────────
+function validateDomain(array $b): ?string {
+    if (mb_strlen(trim($b['bm']  ?? '')) === 0)  return 'bm is required';
+    if (mb_strlen(trim($b['bm']  ?? '')) > 20)   return 'bm max 20 characters';
+    $geo = strtoupper(trim($b['geo'] ?? ''));
+    if (!preg_match('/^[A-Z]{2}$/', $geo))        return 'geo must be 2 letters, e.g. AR';
+    if (mb_strlen($b['domain']  ?? '') > 255)     return 'domain max 255 characters';
+    if (mb_strlen($b['fp_name'] ?? '') > 255)     return 'fp_name max 255 characters';
+    if (mb_strlen($b['page_id'] ?? '') > 255)     return 'page_id max 255 characters';
+    if (mb_strlen($b['pixel_id'] ?? '') > 255)    return 'pixel_id max 255 characters';
+    if (isset($b['status']) && !in_array($b['status'], ['active', 'banned'], true)) return 'status must be active or banned';
+    return null;
+}
+
+function rowParams(array $b): array {
+    return [
+        'bm'      => trim($b['bm']),
+        'geo'     => strtoupper(trim($b['geo'])),
+        'domain'  => trim($b['domain']  ?? ''),
+        'fp_name' => trim($b['fp_name'] ?? ''),
+        'page_id' => trim($b['page_id'] ?? ''),
+        'pixel_id'=> trim($b['pixel_id'] ?? ''),
+        'status'  => in_array(($b['status'] ?? 'active'), ['active', 'banned'], true) ? $b['status'] : 'active',
+    ];
+}
+
+function requestedOwnerId(array $body, array $me, bool $isAdmin): int {
+    if (!$isAdmin) {
+        return (int)$me['id'];
+    }
+    $ownerId = (int)($body['user_id'] ?? 0);
+    return $ownerId > 0 ? $ownerId : (int)$me['id'];
+}
+
+function ownerExists(PDO $db, int $userId): bool {
+    $stmt = $db->prepare("SELECT 1 FROM public.users WHERE id = :id AND is_active = TRUE");
+    $stmt->execute(['id' => $userId]);
+    return (bool)$stmt->fetchColumn();
+}
+
+// ── LIST ──────────────────────────────────────────────────────
+function loadGeoRulesConfig(): array {
+    $rulesPath = __DIR__ . '/../config/geo_rules.json';
+    if (!is_file($rulesPath)) return [];
+    $json = file_get_contents($rulesPath);
+    $rules = json_decode($json, true);
+    if (!is_array($rules)) {
+        $rules = json_decode(preg_replace('/,\s*([}\]])/', '$1', $json), true);
+    }
+    return is_array($rules) ? $rules : [];
+}
+
+function fpGeoGroupForGeo(array $rules, string $geo): array {
+    $geo = strtoupper(trim($geo));
+    $groups = $rules['fp_geo_group'] ?? $rules['fp_geo_groups'] ?? [];
+    if (!is_array($groups)) return [];
+
+    foreach ($groups as $group) {
+        if (!is_array($group)) $group = [$group];
+        $out = [];
+        foreach ($group as $item) {
+            $item = strtoupper(trim((string)$item));
+            if (preg_match('/^[A-Z]{2}$/', $item) && !in_array($item, $out, true)) $out[] = $item;
+        }
+        if (in_array($geo, $out, true)) return $out;
+    }
+
+    return [];
+}
+if ($method === 'GET' && $action === 'list') {
+    $bm   = trim($_GET['bm']  ?? '');
+    $geo  = strtoupper(trim($_GET['geo'] ?? ''));
+    $status = $_GET['status'] ?? 'active';
+    if (!in_array($status, ['active', 'banned'], true)) $status = 'active';
+    $where = []; $params = [];
+    $countWhere = []; $countParams = [];
+    if (!$isAdmin) {
+        $where[] = 'd.user_id = :current_user_id'; $params['current_user_id'] = (int)$me['id'];
+        $countWhere[] = 'user_id = :current_user_id'; $countParams['current_user_id'] = (int)$me['id'];
+    }
+    if ($bm  !== '') {
+        $where[] = 'd.bm = :bm'; $params['bm'] = $bm;
+        $countWhere[] = 'bm = :bm'; $countParams['bm'] = $bm;
+    }
+    if ($geo !== '') {
+        $where[] = 'd.geo = :geo'; $params['geo'] = $geo;
+        $countWhere[] = 'geo = :geo'; $countParams['geo'] = $geo;
+    }
+    $where[] = 'd.status = :status';
+    $params['status'] = $status;
+    $whereSQL = $where ? 'WHERE '.implode(' AND ', $where) : '';
+    $countWhereSQL = $countWhere ? 'WHERE '.implode(' AND ', $countWhere) : '';
+
+    $cnt = $db->prepare("SELECT COUNT(*) FROM public.domains_fp d $whereSQL");
+    $cnt->execute($params);
+    $total = (int)$cnt->fetchColumn();
+
+    $stmt = $db->prepare("
+        SELECT d.id, d.bm AS bm_id, bm.name AS bm_name, d.geo, d.domain, d.fp_name, d.page_id, d.pixel_id, d.status, d.user_id,
+               u.username AS owner_username,
+               COALESCE(u.display_name, u.username) AS owner_name,
+               d.created_at, d.updated_at
+        FROM public.domains_fp d
+        LEFT JOIN public.business_managers bm ON bm.id::text = d.bm
+        LEFT JOIN public.users u ON u.id = d.user_id
+        $whereSQL
+        ORDER BY COALESCE(bm.name, d.bm), d.geo, d.id
+    ");
+    foreach ($params as $k => $v) $stmt->bindValue(":$k", $v);
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
+    $geoRules = loadGeoRulesConfig();
+    foreach ($rows as &$row) {
+        $row['fp_geo_group'] = fpGeoGroupForGeo($geoRules, (string)($row['geo'] ?? ''));
+    }
+    unset($row);
+
+    $scopeWhere = $isAdmin ? '' : 'WHERE user_id = :current_user_id';
+    $scopeParams = $isAdmin ? [] : ['current_user_id' => (int)$me['id']];
+    $bms = loadBmOptions($db, $me, $isAdmin);
+    $geosStmt = $db->prepare("SELECT DISTINCT geo FROM public.domains_fp $scopeWhere ORDER BY geo");
+    $geosStmt->execute($scopeParams);
+    $geos = $geosStmt->fetchAll(PDO::FETCH_COLUMN);
+    $statusStmt = $db->prepare("
+        SELECT status, COUNT(*) AS cnt
+        FROM public.domains_fp
+        $countWhereSQL
+        GROUP BY status
+    ");
+    $statusStmt->execute($countParams);
+    $statusCounts = $statusStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $users = [];
+    if ($isAdmin) {
+        $users = $db->query("
+            SELECT id, username, COALESCE(display_name, username) AS name
+            FROM public.users
+            WHERE is_active = TRUE
+            ORDER BY role, username
+        ")->fetchAll();
+    }
+
+    apiOk($rows, [
+        'total' => $total,
+        'bms'   => $bms,   'geos' => $geos,
+        'users' => $users,
+        'status_counts' => [
+            'active' => (int)($statusCounts['active'] ?? 0),
+            'banned' => (int)($statusCounts['banned'] ?? 0),
+        ],
+    ]);
+}
+
+// ── CREATE ────────────────────────────────────────────────────
+if ($method === 'POST' && $action === 'create') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+    $err = validateDomain($body);
+    if ($err) apiError(400, $err);
+
+    $p = rowParams($body);
+    $p['user_id'] = requestedOwnerId($body, $me, $isAdmin);
+    if (!ownerExists($db, $p['user_id'])) apiError(400, 'owner user not found');
+    $stmt = $db->prepare("
+        INSERT INTO public.domains_fp (bm, geo, domain, fp_name, page_id, pixel_id, status, user_id)
+        VALUES (:bm, :geo, :domain, :fp_name, :page_id, :pixel_id, :status, :user_id)
+        RETURNING id
+    ");
+    $stmt->execute($p);
+    apiOk(['id' => (int)$stmt->fetchColumn()]);
+}
+
+// ── DUPLICATE ─────────────────────────────────────────────────
+if ($method === 'POST' && $action === 'duplicate') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+    $id = (int)($body['id'] ?? 0);
+    if (!$id) apiError(400, 'id required');
+
+    $stmt = $db->prepare("
+        INSERT INTO public.domains_fp (bm, geo, domain, fp_name, page_id, pixel_id, status, user_id)
+        SELECT bm, geo, domain, fp_name, page_id, pixel_id, status, user_id
+        FROM public.domains_fp
+        WHERE id = :id
+        RETURNING id
+    ");
+    $stmt->execute(['id' => $id]);
+    $newId = $stmt->fetchColumn();
+    if (!$newId) apiError(404, 'Not found');
+    apiOk(['id' => (int)$newId, 'source_id' => $id]);
+}
+
+// ── UPDATE ────────────────────────────────────────────────────
+if ($method === 'POST' && $action === 'update') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+    $id = (int)($body['id'] ?? 0);
+    if (!$id) apiError(400, 'id required');
+    $err = validateDomain($body);
+    if ($err) apiError(400, $err);
+
+    $p = array_merge(['id' => $id], rowParams($body));
+    $p['user_id'] = requestedOwnerId($body, $me, $isAdmin);
+    if (!ownerExists($db, $p['user_id'])) apiError(400, 'owner user not found');
+    $stmt = $db->prepare("
+        UPDATE public.domains_fp
+        SET bm=:bm, geo=:geo, domain=:domain, fp_name=:fp_name, page_id=:page_id, pixel_id=:pixel_id, status=:status, user_id=:user_id
+        WHERE id=:id
+        RETURNING id
+    ");
+    $stmt->execute($p);
+    if (!$stmt->fetchColumn()) apiError(404, 'Not found');
+    apiOk(['id' => $id]);
+}
+
+// ── TOGGLE STATUS ─────────────────────────────────────────────
+if ($method === 'POST' && $action === 'set_status') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+    $id = (int)($body['id'] ?? 0);
+    $status = $body['status'] ?? '';
+    if (!$id) apiError(400, 'id required');
+    if (!in_array($status, ['active', 'banned'], true)) apiError(400, 'status must be active or banned');
+
+    $stmt = $db->prepare("
+        UPDATE public.domains_fp
+        SET status=:status
+        WHERE id=:id
+        RETURNING id
+    ");
+    $stmt->execute(['id' => $id, 'status' => $status]);
+    if (!$stmt->fetchColumn()) apiError(404, 'Not found');
+    apiOk(['id' => $id, 'status' => $status]);
+}
+
+// ── DELETE ────────────────────────────────────────────────────
+if ($method === 'POST' && $action === 'delete') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+    $id = (int)($body['id'] ?? 0);
+    if (!$id) apiError(400, 'id required');
+
+    $stmt = $db->prepare("DELETE FROM public.domains_fp WHERE id=:id RETURNING id");
+    $stmt->execute(['id' => $id]);
+    if (!$stmt->fetchColumn()) apiError(404, 'Not found');
+    apiOk(['deleted' => $id]);
+}
+
+apiError(400, 'Unknown action');

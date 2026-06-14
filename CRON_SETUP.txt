@@ -1,0 +1,56 @@
+========================================================
+  FB Ads Dashboard - Cron Setup
+========================================================
+
+1. ADD TO CRONTAB:
+
+   crontab -e
+
+   # Import conversions from Keitaro - once per hour
+   0 * * * * php /var/www/html/cron/sync_keitaro.php >> /var/log/fb-ads-keitaro.log 2>&1
+
+   # Structure and metrics from FBTool - once per hour (after Keitaro)
+   5 * * * * php /var/www/html/cron/sync_fbtool.php >> /var/log/fb-ads-fbtool.log 2>&1
+
+
+2. KEITARO SYNC LOGIC (sync_keitaro.php):
+
+   - Reads all active accounts (status=1) from the database
+   - Groups accounts by timezone_name
+   - Makes a separate request to the Keitaro API for each unique timezone
+     with a window: yesterday 00:00 -> now (in the account timezone)
+   - Aggregates data by date (DATE) in the account timezone
+   - Upserts into insights_daily (fields: leads, regs, deps, revenue, kt_synced_at)
+   - Does not touch FB metrics (spend, clicks, impressions, cpc, ctr, cpm)
+
+
+3. CHECK LOGS:
+
+   tail -f /var/log/fb-ads-keitaro.log
+   tail -f /var/log/fb-ads-fbtool.log
+
+
+4. CHECK DATABASE DATA:
+
+   psql -h 127.0.0.1 -U fb_ads_user -d fb_ads -c "
+   SELECT
+       date,
+       COUNT(*) AS rows,
+       SUM(leads) AS total_leads,
+       SUM(regs)  AS total_regs,
+       SUM(deps)  AS total_deps,
+       SUM(spend) AS total_spend
+   FROM insights_daily
+   GROUP BY date
+   ORDER BY date DESC
+   LIMIT 7;
+   "
+
+
+5. FIRST RUN (MIGRATION):
+
+   psql -h 127.0.0.1 -U fb_ads_user -d fb_ads -f /var/www/html/sql/migrate_to_daily.sql
+
+   WARNING: deletes all data except the users table!
+
+========================================================
