@@ -1,5 +1,5 @@
 <?php
-// @version 1.4.361
+// @version 1.4.362
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -574,6 +574,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 <script>
 const DEFAULT_URL_PARAMS = <?= json_encode(CAMPAIGN_BUILDER_DEFAULT_URL_PARAMS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const CAMPAIGN_BUILDER_API = 'api/campaign_builder.php';
+const CAMPAIGN_BUILDER_PAGE = window.location.pathname || '/campaign_builder.php';
 const state = {
   selectedGeo: '',
   summaryRows: <?= json_encode($campaignBuilderSummaryRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_BIGINT_AS_STRING) ?>,
@@ -682,7 +684,7 @@ function syncPixelFields() {
 }
 
 async function loadSummary() {
-  const json = await fetchJson('/api/campaign_builder?action=summary');
+  const json = await fetchJson(CAMPAIGN_BUILDER_API + '?action=summary');
   state.summaryRows = json.data.rows || [];
   renderSummary();
   const urlGeo = new URLSearchParams(location.search).get('geo');
@@ -724,7 +726,7 @@ async function loadGeo(geo) {
   document.getElementById('formEmpty').style.display = 'block';
   document.getElementById('builderForm').style.display = 'none';
   try {
-    const json = await fetchJson('/api/campaign_builder?action=geo&geo=' + encodeURIComponent(geo));
+    const json = await fetchJson(CAMPAIGN_BUILDER_API + '?action=geo&geo=' + encodeURIComponent(geo));
     state.defaults = json.data.defaults || {};
     state.creatives = json.data.creatives || [];
     state.selectedCreatives = new Set();
@@ -733,7 +735,7 @@ async function loadGeo(geo) {
     state.configs = json.data.configs || [];
     state.accounts = [];
     state.currentConfig = null;
-    history.replaceState(null, '', '/campaign_builder.php?geo=' + encodeURIComponent(geo));
+    history.replaceState(null, '', CAMPAIGN_BUILDER_PAGE + '?geo=' + encodeURIComponent(geo));
     fillForm();
   } catch (e) {
     title.textContent = `Failed to load ${geo}`;
@@ -826,7 +828,7 @@ async function onConfigChange() {
     syncSubmitState();
     return;
   }
-  const json = await fetchJson('/api/campaign_builder?action=config&config_id=' + encodeURIComponent(configId));
+  const json = await fetchJson(CAMPAIGN_BUILDER_API + '?action=config&config_id=' + encodeURIComponent(configId));
   state.currentConfig = json.data.config || null;
   state.accounts = json.data.accounts || [];
   if (state.currentConfig) {
@@ -1073,7 +1075,7 @@ async function submitBuilder(event) {
   btn.disabled = true;
   btn.textContent = 'Creating...';
   try {
-    const json = await fetchJson('/api/campaign_builder', {
+    const json = await fetchJson(CAMPAIGN_BUILDER_API, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
