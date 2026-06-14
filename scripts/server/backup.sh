@@ -7,6 +7,19 @@ DB_NAME="${DB_NAME:-fb_ads}"
 DB_USER="${DB_USER:-fb_ads_user}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 
+if [[ -f "$APP_DIR/config/local.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$APP_DIR/config/local.env"
+  set +a
+fi
+
+export PGPASSWORD="${DB_PASS:-${PGPASSWORD:-}}"
+
+: "${DB_NAME:?DB_NAME is required}"
+: "${DB_USER:?DB_USER is required}"
+: "${PGPASSWORD:?DB_PASS is required}"
+
 TS="$(date -u +%Y%m%d-%H%M%S)"
 DEST="$BACKUP_ROOT/$TS"
 
