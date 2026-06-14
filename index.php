@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.451
+// @version 1.4.452
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -207,8 +207,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .streams-table .offer-name,.streams-table .streams-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .streams-col-th{position:sticky}
 .streams-col-th.dragging{opacity:.45}
-.streams-col-th .thi{padding-right:18px}
-.stream-drag-handle{position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text4);opacity:0;cursor:grab;user-select:none}
+.streams-col-th .thi{padding-right:34px}
+.stream-drag-handle{position:absolute;right:24px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text4);opacity:0;cursor:grab;user-select:none}
 .streams-col-th:hover .stream-drag-handle{opacity:1}
 .streams-col-th.is-drag-target{box-shadow:inset 0 -2px 0 var(--blue)}
 .streams-col-th.is-drag-target .thi{color:var(--blue)}
@@ -2958,19 +2958,18 @@ function ensureTableColgroup(table, key) {
 
     const colKeys = headerCells.map((th, index) => tableColumnKey(th, index));
     const stored = readTableWidths(key);
-    const signatureMatches = stored
-        && Array.isArray(stored.order)
-        && stored.order.length === colKeys.length
-        && stored.order.every((value, index) => value === colKeys[index]);
-
+    const storedWidths = stored?.widths || {};
     const currentWidths = {};
-    if (!signatureMatches) {
-        headerCells.forEach((th, index) => {
-            currentWidths[colKeys[index]] = Math.max(60, Math.round(th.getBoundingClientRect().width || th.offsetWidth || 0) || 60);
-        });
-    }
+    headerCells.forEach((th, index) => {
+        currentWidths[colKeys[index]] = Math.max(60, Math.round(th.getBoundingClientRect().width || th.offsetWidth || 0) || 60);
+    });
 
-    const widths = signatureMatches ? (stored.widths || {}) : currentWidths;
+    const widths = {};
+    headerCells.forEach((th, index) => {
+        const colKey = colKeys[index];
+        const storedWidth = Number(storedWidths[colKey] || 0);
+        widths[colKey] = storedWidth > 0 ? storedWidth : currentWidths[colKey];
+    });
     let colgroup = table.querySelector('colgroup');
     if (!colgroup) {
         colgroup = document.createElement('colgroup');
@@ -2993,6 +2992,11 @@ function ensureTableColgroup(table, key) {
         th.dataset.colKey = colKeys[index];
         th.dataset.colIndex = String(index);
     });
+
+    const signatureMatches = stored
+        && Array.isArray(stored.order)
+        && stored.order.length === colKeys.length
+        && stored.order.every((value, index) => value === colKeys[index]);
 
     if (!signatureMatches || widthsChanged) {
         writeTableWidths(key, colKeys, widths);
@@ -5358,7 +5362,7 @@ function renderAllStreamsTable() {
     const columns = streamColumns('all');
     const totalClicks = rows.reduce((a, r) => a + streamValue(r, 'report_clicks'), 0);
     const totalEpc = streamValue(total, 'epc');
-    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="all"><colgroup>
+    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="all" data-resize-key="streams-all"><colgroup>
         ${columns.map(col => `<col style="width:${col.width || 120}px">`).join('')}
     </colgroup><thead><tr>
         ${columns.map(col => streamTh(col, 'all')).join('')}
@@ -5384,6 +5388,7 @@ function renderAllStreamsTable() {
         }).join('')}
     </tr></tfoot></table>`;
     tbl.innerHTML = html;
+    initColumnResizing(tbl);
 }
 
 function addClientStreamStats(total, row) {
@@ -5447,7 +5452,7 @@ function renderStreamsTable() {
     }
 
     const columns = streamColumns('detail');
-    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="detail"><colgroup>
+    let html = `<table class="streams-table" data-stream-table="1" data-stream-mode="detail" data-resize-key="streams-detail"><colgroup>
         ${columns.map(col => `<col style="width:${col.width || 120}px">`).join('')}
     </colgroup><thead><tr>
         ${columns.map(col => streamTh(col, 'detail')).join('')}
@@ -5485,6 +5490,7 @@ function renderStreamsTable() {
         }).join('')}
     </tr></tfoot></table>`;
     tbl.innerHTML = html;
+    initColumnResizing(tbl);
 }
 // -- OFFERS VIEW ----------------------------------------------
 let offerRows = [];
