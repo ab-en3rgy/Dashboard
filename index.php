@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.453
+// @version 1.4.454
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -200,7 +200,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .streams-title{font-size:14px;font-weight:800;color:var(--text)}
 .streams-sub{font-size:12px;color:var(--text3)}
 .streams-table-wrap{min-width:0}
-#streamsTbl table.streams-table{table-layout:fixed;min-width:100%;width:100%}
+#streamsTbl table.streams-table{table-layout:fixed;width:max-content}
 .streams-table th,.streams-table td{overflow:hidden}
 .streams-table .tdi{min-height:36px;padding:6px 8px}
 .streams-table .num{font-size:12px}
@@ -964,26 +964,26 @@ const REPORT_FILTERS_BY_VIEW = {
 const STREAMS_COLUMN_ORDER_KEY = 'fb_ads_dashboard_streams_column_order_v1';
 const STREAMS_COLUMN_DEFS = {
     all: [
-        { key: 'stream_name', label: 'Stream', align: 'left', width: 340 },
-        { key: 'report_clicks', label: 'Clicks', width: 92 },
-        { key: 'regs', label: 'Regs', width: 92 },
-        { key: 'deps', label: 'Deps', width: 92 },
-        { key: 'revenue', label: 'Revenue', width: 124 },
-        { key: 'epc', label: 'EPC', width: 100 },
+        { key: 'stream_name', label: 'Stream', align: 'left', width: 260 },
+        { key: 'report_clicks', label: 'Clicks', width: 72 },
+        { key: 'regs', label: 'Regs', width: 72 },
+        { key: 'deps', label: 'Deps', width: 72 },
+        { key: 'revenue', label: 'Revenue', width: 100 },
+        { key: 'epc', label: 'EPC', width: 84 },
     ],
     detail: [
-        { key: 'epc_rank', label: 'Rank', width: 82 },
-        { key: 'offer_name', label: 'Offer', align: 'left', width: 300 },
-        { key: 'share', label: 'Weight', width: 90, cls: 'stream-share-col' },
-        { key: 'recommended_weight', label: 'Recommended', width: 108 },
-        { key: 'report_clicks', label: 'Clicks', width: 86 },
-        { key: 'regs', label: 'Regs', width: 86 },
-        { key: 'deps', label: 'Deps', width: 86 },
-        { key: 'revenue', label: 'Revenue', width: 120 },
-        { key: 'epc', label: 'EPC', width: 96 },
-        { key: 'safe_epc', label: 'Safe EPC', width: 104 },
-        { key: 'confidence', label: 'Confidence', width: 104 },
-        { key: 'rank_score', label: 'Mode / Score', width: 138 },
+        { key: 'epc_rank', label: 'Rank', width: 72 },
+        { key: 'offer_name', label: 'Offer', align: 'left', width: 220 },
+        { key: 'share', label: 'Weight', width: 72, cls: 'stream-share-col' },
+        { key: 'recommended_weight', label: 'Recommended', width: 96 },
+        { key: 'report_clicks', label: 'Clicks', width: 72 },
+        { key: 'regs', label: 'Regs', width: 72 },
+        { key: 'deps', label: 'Deps', width: 72 },
+        { key: 'revenue', label: 'Revenue', width: 100 },
+        { key: 'epc', label: 'EPC', width: 84 },
+        { key: 'safe_epc', label: 'Safe EPC', width: 90 },
+        { key: 'confidence', label: 'Confidence', width: 90 },
+        { key: 'rank_score', label: 'Mode / Score', width: 114 },
     ],
 };
 
