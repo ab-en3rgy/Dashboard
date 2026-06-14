@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.454
+// @version 1.4.455
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -3623,7 +3623,7 @@ function renderTable() {
         const costBaseline = v === 'campaign' ? row.cost_baseline : null;
         const realStatus = realDeliveryStatus(row);
         const ownStatus = normalizedStatus(row.status);
-        const ownDisplayStatus = isAd && ownStatus ? ownStatus : realStatus;
+        const ownDisplayStatus = isAd ? ((realStatus && realStatus !== 'ACTIVE') ? realStatus : (ownStatus || realStatus)) : realStatus;
         const pendingTask = isCamp
             ? pendingCampaignTasks.get(String(row.id))
             : (isAdset ? pendingAdsetTasks.get(String(row.id)) : (isAd ? pendingAdTasks.get(String(row.id)) : null));
