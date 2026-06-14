@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.442
+// @version 1.4.447
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -986,7 +986,7 @@ const state = {
 const TAB_DEFAULTS = JSON.parse(JSON.stringify(state.tabs));
 
 // Data caches
-let rows = [], creoRows = [], creativeCalendarRows = [], creativeCalendarMeta = {}, campsCalendarRows = [], campsCalendarMeta = {}, geoRows = [], geoDiffRows = [], monthRows = [], monthPeriods = [], monthPeriodsKey = '', accounts = [], bmCardRows = [], streamRows = [], taskRows = [], taskMeta = {}, _topCreoFlat = [];
+let rows = [], creoRows = [], creativeCalendarRows = [], creativeCalendarMeta = {}, campsCalendarRows = [], campsCalendarMeta = {}, geoRows = [], geoDiffRows = [], monthRows = [], monthPeriods = [], monthPeriodsKey = '', accounts = [], bmCardRows = [], streamRowsAll = [], streamRows = [], taskRows = [], taskMeta = {}, _topCreoFlat = [];
 let adsetBidEditor = null;
 let creativePreviewMap = null;
 let reportFilterOptions = {geos:[], bms:[], accounts:[], launch_dates:[], campaigns:[], adsets:[], creatives:[]};
@@ -4860,7 +4860,10 @@ async function loadStreamsData() {
             tbl.innerHTML = '<div class="tbl-empty">Offer insights table is not installed</div>';
             return;
         }
-        streamRows = json.data?.streams || [];
+        streamRowsAll = json.data?.streams || [];
+        streamRows = state.tabs.streams.campaign_id
+            ? streamRowsAll.filter(s => String(s.campaign_id || '') === String(state.tabs.streams.campaign_id))
+            : [...streamRowsAll];
         if (requestAllStreams && wantedGeo && streamRows.length) {
             const geoStream = streamRows.find(s => String(s.geo || '').toUpperCase() === wantedGeo);
             if (geoStream?.stream_id) {
@@ -4875,13 +4878,14 @@ async function loadStreamsData() {
             state.tabs.streams.stream_id = String(json.data.selected_stream_id);
             pushURL({replace:true});
         }
-        if (state.tabs.streams.campaign_id && streamRows.length && !streamRows.some(s => String(s.campaign_id || '') === String(state.tabs.streams.campaign_id))) {
+        if (state.tabs.streams.campaign_id && streamRowsAll.length && !streamRowsAll.some(s => String(s.campaign_id || '') === String(state.tabs.streams.campaign_id))) {
             state.tabs.streams.stream_id = '';
             pushURL({replace:true});
         }
-        let selected = streamRows.find(s => String(s.stream_id) === String(state.tabs.streams.stream_id));
-        if (state.tabs.streams.stream_id && !selected && streamRows.length) {
-            state.tabs.streams.stream_id = String(streamRows[0].stream_id);
+        const visibleRows = visibleStreamRows();
+        let selected = visibleRows.find(s => String(s.stream_id) === String(state.tabs.streams.stream_id));
+        if (state.tabs.streams.stream_id && !selected && visibleRows.length) {
+            state.tabs.streams.stream_id = String(visibleRows[0].stream_id);
             pushURL({replace:true});
         }
         renderStreamsTabs();
@@ -4896,10 +4900,14 @@ function selectedStream() {
     return streamRows.find(s => String(s.stream_id) === String(state.tabs.streams.stream_id)) || null;
 }
 
+function visibleStreamRows() {
+    return [...streamRows];
+}
+
 function selectedStreamCampaignName() {
     const campaignId = String(state.tabs.streams.campaign_id || '');
     if (!campaignId) return '';
-    const row = streamRows.find(s => String(s.campaign_id || '') === campaignId);
+    const row = streamRowsAll.find(s => String(s.campaign_id || '') === campaignId);
     return row?.campaign_name || campaignId;
 }
 
@@ -4949,7 +4957,7 @@ function renderStreamsTabs() {
     const current = String(state.tabs.streams.stream_id || '');
     const campaigns = [];
     const seenCampaigns = new Set();
-    streamRows.forEach(s => {
+    streamRowsAll.forEach(s => {
         const campaignId = String(s.campaign_id || '').trim();
         if (!campaignId || seenCampaigns.has(campaignId)) return;
         seenCampaigns.add(campaignId);
@@ -4966,8 +4974,9 @@ function renderStreamsTabs() {
     }).join('');
     campaignEl.value = currentCampaign || '';
 
+    const rowsForStreamSelect = visibleStreamRows();
     selectEl.disabled = false;
-    selectEl.innerHTML = `<option value="all" ${current ? '' : 'selected'}>All streams</option>` + streamRows.map(s => {
+    selectEl.innerHTML = `<option value="all" ${current ? '' : 'selected'}>All streams</option>` + rowsForStreamSelect.map(s => {
         const active = String(s.stream_id) === current;
         const label = s.stream_name || `${s.geo || 'XX'} stream`;
         const campaignSuffix = s.campaign_name ? ` · ${s.campaign_name}` : '';
@@ -5104,7 +5113,8 @@ function streamRankWeightCell(rank, row, totalClicks) {
 function renderAllStreamsTable() {
     const tbl = document.getElementById('streamsTbl');
     const head = document.getElementById('streamsHead');
-    const total = streamRows.reduce((acc, row) => {
+    let rows = visibleStreamRows();
+    const total = rows.reduce((acc, row) => {
         addClientStreamStats(acc, row.totals || {});
         return acc;
     }, {clicks:0, leads:0, regs:0, deps:0, conversions:0, revenue:0});
@@ -5115,12 +5125,12 @@ function renderAllStreamsTable() {
         head.innerHTML = `
             <div>
                 <div class="streams-title">All streams</div>
-                <div class="streams-sub">${campaignName ? `Campaign: ${esc(campaignName)}  |  ` : ''}${fN(streamRows.length)} streams in the current report range</div>
+                <div class="streams-sub">${campaignName ? `Campaign: ${esc(campaignName)}  |  ` : ''}${fN(rows.length)} streams in the current report range</div>
             </div>
             <div class="streams-sub" style="margin-left:auto">Clicks ${fN(streamValue(total, 'report_clicks'))}  |  Revenue ${f$(total.revenue)}  |  EPC ${streamValue(total, 'epc') > 0 ? f$(streamValue(total, 'epc')) : '-'}</div>`;
     }
 
-    let rows = [...streamRows];
+    rows = [...rows];
     const q = (state.tabs.streams.search || '').toLowerCase();
     if (q) rows = rows.filter(r =>
         (r.stream_name || '').toLowerCase().includes(q) ||

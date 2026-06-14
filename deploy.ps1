@@ -3,7 +3,7 @@ param(
     [string]$User = "root",
     [int]$Port = 22,
     [string]$KeyPath = "$env:USERPROFILE\.ssh\id_ed25519",
-    [string]$RemotePath = "/var/www/html"
+    [string]$RemotePath = "/var/www/fbads"
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +33,7 @@ try {
         --exclude=".github" `
         --exclude="_removed" `
         --exclude=".env" `
-        --exclude="config/config.php" `
+        --exclude="config/local.env" `
         --exclude="*.tar.gz" `
         --exclude="snapshot_*" `
         --exclude="index.php.old.diz" `
