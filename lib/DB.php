@@ -21,7 +21,6 @@ class DB {
             // Always work in UTC at the connection level
             self::$instance->exec("SET timezone = 'UTC'");
             self::ensureInsightsDailySchema(self::$instance);
-            self::ensureCampaignGeoFunction(self::$instance);
         }
         return self::$instance;
     }
@@ -40,49 +39,4 @@ class DB {
         ");
     }
 
-    private static function ensureCampaignGeoFunction(PDO $db): void
-    {
-        $db->exec("
-            CREATE OR REPLACE FUNCTION public.campaign_geo(name TEXT)
-            RETURNS TEXT
-            LANGUAGE plpgsql
-            IMMUTABLE
-            AS \$\$
-            DECLARE
-                parts TEXT[];
-                part TEXT;
-                i INT;
-                candidate TEXT := '';
-                max_i INT;
-            BEGIN
-                IF name IS NULL OR btrim(name) = '' THEN
-                    RETURN 'XX';
-                END IF;
-
-                parts := string_to_array(name, '_');
-                max_i := COALESCE(array_length(parts, 1), 0);
-                IF max_i = 0 THEN
-                    RETURN 'XX';
-                END IF;
-
-                FOR i IN 1..max_i LOOP
-                    part := upper(btrim(parts[i]));
-                    IF part ~ '^[A-Z]{2}$' AND part NOT IN ('BC', 'CBO', 'ABO', 'SLOT', 'CRASH') AND i >= 4 THEN
-                        RETURN part;
-                    END IF;
-                END LOOP;
-
-                FOR i IN 1..max_i LOOP
-                    part := upper(btrim(parts[i]));
-                    IF part ~ '^[A-Z]{2}$' AND part NOT IN ('BC', 'CBO', 'ABO', 'SLOT', 'CRASH') THEN
-                        candidate := part;
-                        EXIT;
-                    END IF;
-                END LOOP;
-
-                RETURN COALESCE(NULLIF(candidate, ''), 'XX');
-            END;
-            \$\$;
-        ");
-    }
 }
