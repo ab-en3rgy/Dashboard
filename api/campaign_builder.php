@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder.php
-// @version 1.0.12
+// @version 1.0.13
 // Session-auth API for the New Campaign task generator.
 
 require __DIR__ . '/_bootstrap.php';
@@ -623,7 +623,7 @@ function fetchBmEligibleAccounts(PDO $db, string $bmId, string $geo): array
 
 function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): array
 {
-    $params = [':geo' => $geo];
+    $params = [':geo_exact' => $geo, ':geo_used' => $geo];
     $where = [];
     if (($me['role'] ?? '') !== 'admin') {
         $where[] = 'd.user_id = :user_id';
@@ -639,8 +639,12 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
                COALESCE(fta.fbtool_id, '') AS fbtool_id,
                d.status AS fp_status,
                CASE
-                   WHEN d.geo = :geo THEN 1
-                   WHEN COALESCE(d.used_geos, '[]'::jsonb) ? :geo THEN 1
+                   WHEN d.geo = :geo_exact THEN 1
+                   WHEN EXISTS (
+                       SELECT 1
+                       FROM jsonb_array_elements_text(COALESCE(d.used_geos, '[]'::jsonb)) AS used_geo(val)
+                       WHERE used_geo.val = :geo_used
+                   ) THEN 1
                    ELSE 0
                END AS geo_match
         FROM public.domains_fp d

@@ -1,6 +1,6 @@
 <?php
 // api/domains.php — CRUD for domains_fp (session auth)
-// @version 1.0.2
+// @version 1.0.3
 //
 // GET  ?action=list&bm=123&geo=AR
 // POST { action: create|update|delete, ...fields }
@@ -197,10 +197,12 @@ if ($method === 'GET' && $action === 'list') {
         $countWhere[] = 'bm = :bm'; $countParams['bm'] = $bm;
     }
     if ($geo !== '') {
-        $where[] = "(d.geo = :geo OR COALESCE(d.used_geos, '[]'::jsonb) ? :geo)";
-        $params['geo'] = $geo;
-        $countWhere[] = "(geo = :geo OR COALESCE(used_geos, '[]'::jsonb) ? :geo)";
-        $countParams['geo'] = $geo;
+        $where[] = "(d.geo = :geo_exact OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(d.used_geos, '[]'::jsonb)) AS used_geo(val) WHERE used_geo.val = :geo_used))";
+        $params['geo_exact'] = $geo;
+        $params['geo_used'] = $geo;
+        $countWhere[] = "(geo = :geo_exact OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(used_geos, '[]'::jsonb)) AS used_geo(val) WHERE used_geo.val = :geo_used))";
+        $countParams['geo_exact'] = $geo;
+        $countParams['geo_used'] = $geo;
     }
     $where[] = 'd.status = :status';
     $params['status'] = $status;
