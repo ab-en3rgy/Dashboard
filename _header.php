@@ -1,6 +1,6 @@
 <?php
 // _header.php - shared top bar for all dashboard pages
-// @version 1.1.9
+// @version 1.2.0
 // Requires: $me user array and connected _bootstrap.php or session
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 $impersonationAdmin = null;
@@ -102,6 +102,9 @@ if ($adminToken && $adminToken !== $currentToken && isset($auth) && $auth instan
   cursor:pointer;
   flex-shrink:0;
   transition:all .15s;
+}
+.tb-theme-btn{
+  position:relative;
 }
 .tb-icon-btn:hover{
   background:var(--bg);
@@ -278,6 +281,28 @@ if ($adminToken && $adminToken !== $currentToken && isset($auth) && $auth instan
   opacity:1;
   width:4px;
 }
+[data-theme="dark"] .tb-drawer-head{
+  background:linear-gradient(180deg,#111827 0%,#0f172a 100%);
+}
+[data-theme="dark"] .tb-group{
+  background:#111827;
+}
+[data-theme="dark"] .tb-group-h{
+  background:#0f172a;
+}
+[data-theme="dark"] .tb-drawer-foot{
+  background:#0f172a;
+}
+[data-theme="dark"] .tb-user-card{
+  background:#111827;
+}
+[data-theme="dark"] .tb-link.primary{
+  background:rgba(24,119,242,.16);
+  border-color:rgba(96,165,250,.35);
+}
+[data-theme="dark"] .tb-edge-zone::after{
+  background:linear-gradient(180deg,rgba(96,165,250,.32),rgba(96,165,250,.08));
+}
 @media (max-width: 900px){
   .tb-shell{padding:10px 12px}
   .tb-logo{font-size:16px}
@@ -324,6 +349,11 @@ if ($adminToken && $adminToken !== $currentToken && isset($auth) && $auth instan
         <div class="tb-avatar"><?= mb_strtoupper(mb_substr($me['display_name'], 0, 1)) ?></div>
         <span><?= htmlspecialchars($me['display_name']) ?></span>
       </div>
+      <button class="tb-icon-btn tb-theme-btn" type="button" id="tbThemeBtn" aria-label="Toggle dark theme" title="Toggle dark theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="tbThemeIcon">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"></path>
+        </svg>
+      </button>
       <?php if ($impersonationAdmin): ?>
       <form method="post" action="/impersonate.php" style="display:inline">
         <input type="hidden" name="action" value="stop">
@@ -428,6 +458,48 @@ if ($adminToken && $adminToken !== $currentToken && isset($auth) && $auth instan
 </aside>
 
 <script>
+(function () {
+  const storageKey = 'fb_ads_theme';
+  const root = document.documentElement;
+  const btn = document.getElementById('tbThemeBtn');
+  const icon = document.getElementById('tbThemeIcon');
+  if (!btn || !icon) return;
+
+  function updateIcon(theme) {
+    if (theme === 'dark') {
+      icon.innerHTML = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.93 4.93l1.41 1.41"></path><path d="M17.66 17.66l1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M4.93 19.07l1.41-1.41"></path><path d="M17.66 6.34l1.41-1.41"></path>';
+      btn.setAttribute('aria-label', 'Switch to light theme');
+      btn.setAttribute('title', 'Switch to light theme');
+      return;
+    }
+    icon.innerHTML = '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"></path>';
+    btn.setAttribute('aria-label', 'Switch to dark theme');
+    btn.setAttribute('title', 'Switch to dark theme');
+  }
+
+  function applyTheme(theme, persist = true) {
+    const nextTheme = theme === 'dark' ? 'dark' : 'light';
+    root.dataset.theme = nextTheme;
+    root.style.colorScheme = nextTheme;
+    updateIcon(nextTheme);
+    if (persist) localStorage.setItem(storageKey, nextTheme);
+  }
+
+  const storedTheme = localStorage.getItem(storageKey);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : (prefersDark ? 'dark' : 'light'), false);
+
+  btn.addEventListener('click', () => {
+    applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
+  });
+
+  window.addEventListener('storage', e => {
+    if (e.key === storageKey && (e.newValue === 'dark' || e.newValue === 'light')) {
+      applyTheme(e.newValue, false);
+    }
+  });
+})();
+
 (function () {
   const btn = document.getElementById('tbMenuBtn');
   const drawer = document.getElementById('tbDrawer');

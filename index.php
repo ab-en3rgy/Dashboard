@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.455
+// @version 1.4.456
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -28,6 +28,17 @@ $displayTz = appTimezoneName($me['display_tz'] ?? $cfg['display_tz'] ?? 'Europe/
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FB Ads Dashboard</title>
+<meta name="color-scheme" content="light dark">
+<script>
+(function () {
+  const key = 'fb_ads_theme';
+  const stored = localStorage.getItem(key);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -43,6 +54,18 @@ $displayTz = appTimezoneName($me['display_tz'] ?? $cfg['display_tz'] ?? 'Europe/
   --shadow:0 1px 2px rgba(0,0,0,.08),0 1px 8px rgba(0,0,0,.05);
   --shadow-md:0 2px 16px rgba(0,0,0,.11);
   --r:8px;--r2:6px;
+}
+:root[data-theme="dark"]{
+  --bg:#0b1220;--surface:#111827;
+  --border:#243047;--border2:#334155;--border-light:#1f2a3d;
+  --text:#e5e7eb;--text2:#cbd5e1;--text3:#94a3b8;
+  --blue:#60a5fa;--blue2:#3b82f6;--blue-bg:rgba(96,165,250,.14);--blue-sel:#1e3356;
+  --green:#4ade80;--green-bg:rgba(74,222,128,.12);
+  --red:#f87171;--red-bg:rgba(248,113,113,.12);
+  --orange:#f59e0b;
+  --toggle-on:#4ade80;--toggle-off:#475569;
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 1px 12px rgba(0,0,0,.22);
+  --shadow-md:0 2px 18px rgba(0,0,0,.34);
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
@@ -124,6 +147,35 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .width-balance-toggle input:checked + .width-balance-track .width-balance-knob{transform:translateX(12px)}
 .width-balance-label{font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.4px}
 .width-balance-toggle:hover .width-balance-label{color:var(--blue)}
+[data-theme="dark"] #balancesModal tr.alert-row td{background:rgba(248,113,113,.1)}
+[data-theme="dark"] .topbar,
+[data-theme="dark"] .levelnav,
+[data-theme="dark"] .ftabs,
+[data-theme="dark"] .factive,
+[data-theme="dark"] .main-wrap,
+[data-theme="dark"] .table-wrap,
+[data-theme="dark"] .panel,
+[data-theme="dark"] .modal-box,
+[data-theme="dark"] .creative-preview-tip,
+[data-theme="dark"] .bm-map-metric,
+[data-theme="dark"] .bm-map-chart{background:var(--surface)}
+[data-theme="dark"] .streams-head,
+[data-theme="dark"] .offers-right,
+[data-theme="dark"] .cards-bar,
+[data-theme="dark"] .selbar{background:var(--surface)}
+[data-theme="dark"] thead th,
+[data-theme="dark"] .gc-table th,
+[data-theme="dark"] th{background:#0f172a}
+[data-theme="dark"] .bm-map-metric,
+[data-theme="dark"] .bm-map-chart,
+[data-theme="dark"] .creative-preview-tip img{border-color:var(--border-light);background:#0f172a}
+[data-theme="dark"] .task-badge.pending,
+[data-theme="dark"] .bm-map-signal.cooling{background:rgba(245,158,11,.12);color:#fbbf24}
+[data-theme="dark"] .campaign-delete-btn,
+[data-theme="dark"] .task-action-btn.danger{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.2)}
+[data-theme="dark"] .bal-bar{background:#0f172a}
+[data-theme="dark"] .width-balance-track{background:#334155}
+[data-theme="dark"] .width-balance-knob{background:#e5e7eb}
 .delivery-badges{display:flex;align-items:center;gap:5px;margin-left:4px}
 .delivery-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:var(--blue-bg);border:1px solid var(--blue);color:var(--blue);cursor:pointer;white-space:nowrap}
 .delivery-badge:hover{background:var(--blue);color:#fff}

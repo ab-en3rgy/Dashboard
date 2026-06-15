@@ -1,6 +1,6 @@
 <?php
 // domains.php - Domains and FP
-// @version 1.0.3
+// @version 1.0.4
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 
@@ -23,6 +23,17 @@ $isAdmin = ($me['role'] === 'admin');
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Domains & FP - FB Ads</title>
+<meta name="color-scheme" content="light dark">
+<script>
+(function () {
+  const key = 'fb_ads_theme';
+  const stored = localStorage.getItem(key);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -35,6 +46,15 @@ $isAdmin = ($me['role'] === 'admin');
   --red:#fa3e3e;--red-bg:#fce8e8;
   --shadow:0 1px 2px rgba(0,0,0,.08),0 1px 8px rgba(0,0,0,.05);
   --r:8px;--r2:6px;
+}
+:root[data-theme="dark"]{
+  --bg:#0b1220;--surface:#111827;
+  --border:#243047;--border2:#334155;--border-light:#1f2a3d;
+  --text:#e5e7eb;--text2:#cbd5e1;--text3:#94a3b8;
+  --blue:#60a5fa;--blue2:#3b82f6;--blue-bg:rgba(96,165,250,.14);
+  --green:#4ade80;--green-bg:rgba(74,222,128,.12);
+  --red:#f87171;--red-bg:rgba(248,113,113,.12);
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 1px 12px rgba(0,0,0,.22);
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
 
@@ -121,6 +141,13 @@ tr:hover td{background:var(--bg)}
 .form-row .hint{font-size:11px;color:var(--text3);margin-top:3px}
 .form-2col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .err-msg{color:var(--red);font-size:13px;margin-bottom:10px;padding:8px 12px;background:var(--red-bg);border-radius:var(--r2)}
+[data-theme="dark"] thead th{background:#0f172a}
+[data-theme="dark"] .bm-group-row td{background:rgba(96,165,250,.08);border-bottom-color:rgba(96,165,250,.2)}
+[data-theme="dark"] .geo-tag{background:rgba(96,165,250,.12);color:#93c5fd}
+[data-theme="dark"] .modal-overlay{background:rgba(2,6,23,.72)}
+[data-theme="dark"] .modal-box{box-shadow:0 10px 40px rgba(0,0,0,.45)}
+[data-theme="dark"] .btn-sm.danger:hover{background:rgba(248,113,113,.12)}
+[data-theme="dark"] .form-row input{background:var(--surface)}
 
 @media(max-width:600px){.form-2col{grid-template-columns:1fr}}
 </style>

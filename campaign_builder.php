@@ -1,5 +1,5 @@
 <?php
-// @version 1.4.365
+// @version 1.4.366
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -223,6 +223,17 @@ function campaignBuilderSummaryRows(PDO $db, array $bmIds, array $me): array
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Campaign Builder - FB Ads</title>
+<meta name="color-scheme" content="light dark">
+<script>
+(function () {
+  const key = 'fb_ads_theme';
+  const stored = localStorage.getItem(key);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -236,6 +247,16 @@ function campaignBuilderSummaryRows(PDO $db, array $bmIds, array $me): array
   --orange:#f59e0b;--orange-bg:#fff3cd;
   --shadow:0 1px 2px rgba(0,0,0,.08),0 1px 8px rgba(0,0,0,.05);
   --r:10px;--r2:6px;
+}
+:root[data-theme="dark"]{
+  --bg:#0b1220;--surface:#111827;--surface2:#0f172a;
+  --border:#243047;--border2:#334155;--border-light:#1f2a3d;
+  --text:#e5e7eb;--text2:#cbd5e1;--text3:#94a3b8;
+  --blue:#60a5fa;--blue2:#3b82f6;--blue-bg:rgba(96,165,250,.14);
+  --green:#4ade80;--green-bg:rgba(74,222,128,.12);
+  --red:#f87171;--red-bg:rgba(248,113,113,.12);
+  --orange:#f59e0b;--orange-bg:rgba(245,158,11,.15);
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 1px 12px rgba(0,0,0,.22);
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
 .topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.07);position:sticky;top:0;z-index:200}
@@ -319,6 +340,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .account-bm{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#eef4ff;color:var(--blue);font-size:11px;font-weight:800;border:1px solid #d7e3fb}
 .account-fbtool{font-size:11px;color:var(--text3)}
 .account-sort-note{margin-top:8px;font-size:11px;color:var(--text3)}
+[data-theme="dark"] .geo-table tbody tr:hover td{background:rgba(96,165,250,.08)}
+[data-theme="dark"] .geo-table tbody tr.active td{background:rgba(96,165,250,.12)}
+[data-theme="dark"] .account-item{background:var(--surface);border-color:var(--border);box-shadow:0 1px 2px rgba(0,0,0,.28)}
+[data-theme="dark"] .account-item:hover{border-color:rgba(96,165,250,.42);box-shadow:0 6px 16px rgba(0,0,0,.25)}
+[data-theme="dark"] .account-item.checked{background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.55);box-shadow:0 0 0 1px rgba(96,165,250,.18),0 8px 18px rgba(0,0,0,.28)}
+[data-theme="dark"] .account-bm{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.28);color:#93c5fd}
 
 .status-box{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
 .status-box.show{display:block}
