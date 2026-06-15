@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.456
+// @version 1.4.457
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -362,6 +362,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .gc-table td:first-child{position:sticky;left:0;background:var(--surface);z-index:5;font-weight:600;min-width:160px;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .gc-table tr:hover td{background:#f0f4ff}
 .gc-table tr:hover td:first-child{background:#e8edf8}
+[data-theme="dark"] .gc-table tr:hover td{background:#162033}
+[data-theme="dark"] .gc-table tr:hover td:first-child{background:#182235}
 .gc-cell{display:flex;flex-direction:column;align-items:center;gap:2px}
 .gc-rk{font-size:12px;font-weight:600;color:var(--text)}
 .gc-count{font-size:11px;color:var(--text3)}
@@ -455,6 +457,30 @@ tr.highlighted:hover td{background:#d5eaf8}
 tr.banned .nc-name{color:var(--text3)!important;opacity:.6}
 tr.sel:hover td{background:#cce0fa}
 tr.total-row td{background:#eef3ff;font-weight:800;border-top:2px solid var(--blue);position:sticky;bottom:0;z-index:9;color:var(--blue);font-size:12px}
+[data-theme="dark"] tr:hover td{background:#162033}
+[data-theme="dark"] tr.ad-status-disapproved td{background:rgba(248,113,113,.11)}
+[data-theme="dark"] tr.ad-status-disapproved:hover td{background:rgba(248,113,113,.17)}
+[data-theme="dark"] tr.ad-status-with_issues td,
+[data-theme="dark"] tr.campaign-status-pending td{background:rgba(245,158,11,.11)}
+[data-theme="dark"] tr.ad-status-with_issues:hover td,
+[data-theme="dark"] tr.campaign-status-pending:hover td{background:rgba(245,158,11,.17)}
+[data-theme="dark"] tr.ad-status-pending_review td,
+[data-theme="dark"] tr.ad-status-in_process td{background:rgba(96,165,250,.09)}
+[data-theme="dark"] tr.ad-status-pending_review:hover td,
+[data-theme="dark"] tr.ad-status-in_process:hover td{background:rgba(96,165,250,.15)}
+[data-theme="dark"] tr.ad-status-paused td,
+[data-theme="dark"] tr.ad-status-adset_paused td,
+[data-theme="dark"] tr.ad-status-campaign_paused td,
+[data-theme="dark"] tr.ad-status-archived td{background:#111827}
+[data-theme="dark"] tr.ad-status-paused:hover td,
+[data-theme="dark"] tr.ad-status-adset_paused:hover td,
+[data-theme="dark"] tr.ad-status-campaign_paused:hover td,
+[data-theme="dark"] tr.ad-status-archived:hover td{background:#182235}
+[data-theme="dark"] tr.sel td{background:#1e3556}
+[data-theme="dark"] tr.highlighted td{background:#1a2f4d}
+[data-theme="dark"] tr.highlighted:hover td{background:#244366}
+[data-theme="dark"] tr.sel:hover td{background:#244366}
+[data-theme="dark"] tr.total-row td{background:#172236;color:var(--text);border-top-color:var(--blue)}
 input[type=checkbox]{width:14px;height:14px;accent-color:var(--blue);cursor:pointer}
 
 /* TOGGLE */
