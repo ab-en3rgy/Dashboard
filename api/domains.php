@@ -1,6 +1,6 @@
 <?php
 // api/domains.php — CRUD for domains_fp (session auth)
-// @version 1.0.4
+// @version 1.0.5
 //
 // GET  ?action=list&bm=123&geo=AR
 // POST { action: create|update|delete, ...fields }
@@ -102,12 +102,16 @@ function ensureDomainGeoAnalysisSchema(PDO $db): void {
         CREATE INDEX IF NOT EXISTS idx_dfp_geo_usage_fp_geo ON public.domains_fp_geo_usage (fp_id, geo)
     ");
     $db->exec("
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dfp_geo_usage_fp_geo_unique ON public.domains_fp_geo_usage (fp_id, geo)
+    ");
+    $db->exec("
         CREATE INDEX IF NOT EXISTS idx_dfp_geo_usage_log ON public.domains_fp_geo_usage (log_id DESC)
     ");
     $db->exec("
         CREATE TABLE IF NOT EXISTS public.domains_fp_geo_scan_state (
             id smallint PRIMARY KEY,
             last_log_id bigint NOT NULL DEFAULT 0,
+            last_task_id bigint NOT NULL DEFAULT 0,
             updated_at timestamptz NOT NULL DEFAULT now()
         )
     ");
@@ -115,6 +119,10 @@ function ensureDomainGeoAnalysisSchema(PDO $db): void {
         INSERT INTO public.domains_fp_geo_scan_state (id, last_log_id)
         VALUES (1, 0)
         ON CONFLICT (id) DO NOTHING
+    ");
+    $db->exec("
+        ALTER TABLE public.domains_fp_geo_scan_state
+        ADD COLUMN IF NOT EXISTS last_task_id bigint NOT NULL DEFAULT 0
     ");
 }
 
@@ -340,28 +348,26 @@ if ($method === 'GET' && $action === 'list') {
 if ($method === 'POST' && $action === 'analyze_geo_usage') {
     if (!$isAdmin) apiError(403, 'Admin only');
 
-    $stateStmt = $db->query("SELECT last_log_id FROM public.domains_fp_geo_scan_state WHERE id = 1 LIMIT 1");
-    $lastLogId = (int)($stateStmt ? $stateStmt->fetchColumn() : 0);
+    $stateStmt = $db->query("SELECT last_task_id FROM public.domains_fp_geo_scan_state WHERE id = 1 LIMIT 1");
+    $lastTaskId = (int)($stateStmt ? $stateStmt->fetchColumn() : 0);
 
-    $logStmt = $db->prepare("
-        SELECT gl.id, gl.task_id, gl.created_at, gl.payload, gl.campaign_id, gl.adset_id, gl.account_id, gl.bm_id
-        FROM public.global_log gl
-        WHERE gl.id > :last_log_id
-          AND gl.event_type = 'fb_result'
-          AND gl.status = 'done'
-          AND gl.action = 'create_campaign'
-        ORDER BY gl.id ASC
+    $taskStmt = $db->prepare("
+        SELECT t.id, t.created_at, t.payload, t.bm_id, t.account_id
+        FROM public.tasks t
+        WHERE t.id > :last_task_id
+          AND t.task_type = 'create_campaign'
+        ORDER BY t.id ASC
         LIMIT 5000
     ");
-    $logStmt->execute([':last_log_id' => $lastLogId]);
-    $logs = $logStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    if (!$logs) {
+    $taskStmt->execute([':last_task_id' => $lastTaskId]);
+    $tasks = $taskStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (!$tasks) {
         apiOk([
-            'checked_logs' => 0,
-            'matched_logs' => 0,
+            'checked_tasks' => 0,
+            'matched_tasks' => 0,
             'inserted' => 0,
             'updated_fps' => 0,
-            'last_log_id' => $lastLogId,
+            'last_task_id' => $lastTaskId,
         ]);
     }
 
@@ -370,7 +376,7 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
             (log_id, fp_id, geo, bm_id, account_id, page_id, fp_name, created_at)
         VALUES
             (:log_id, :fp_id, :geo, :bm_id, :account_id, :page_id, :fp_name, :created_at)
-        ON CONFLICT (log_id) DO NOTHING
+        ON CONFLICT (fp_id, geo) DO NOTHING
     ");
     $touchStmt = $db->prepare("
         UPDATE public.domains_fp d
@@ -387,7 +393,7 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
     ");
     $advanceStmt = $db->prepare("
         UPDATE public.domains_fp_geo_scan_state
-        SET last_log_id = :last_log_id,
+        SET last_task_id = :last_task_id,
             updated_at = NOW()
         WHERE id = 1
     ");
@@ -395,13 +401,13 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
     $matched = 0;
     $inserted = 0;
     $touchedFpIds = [];
-    $maxLogId = $lastLogId;
+    $maxTaskId = $lastTaskId;
 
     $db->beginTransaction();
     try {
-        foreach ($logs as $log) {
-            $maxLogId = max($maxLogId, (int)$log['id']);
-            $payload = json_decode((string)($log['payload'] ?? '{}'), true);
+        foreach ($tasks as $task) {
+            $maxTaskId = max($maxTaskId, (int)$task['id']);
+            $payload = json_decode((string)($task['payload'] ?? '{}'), true);
             if (!is_array($payload)) {
                 continue;
             }
@@ -413,14 +419,14 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
             }
 
             $insertStmt->execute([
-                ':log_id' => (int)$log['id'],
+                ':log_id' => (int)$task['id'],
                 ':fp_id' => $fpId,
                 ':geo' => $geo,
-                ':bm_id' => trim((string)($payload['bm_id'] ?? $log['bm_id'] ?? '')),
-                ':account_id' => trim((string)($payload['account_id'] ?? $log['account_id'] ?? '')),
+                ':bm_id' => trim((string)($payload['bm_id'] ?? $task['bm_id'] ?? '')),
+                ':account_id' => trim((string)($payload['account_id'] ?? $task['account_id'] ?? '')),
                 ':page_id' => trim((string)($payload['page_id'] ?? '')),
                 ':fp_name' => trim((string)($payload['fp_name'] ?? $payload['fp_label'] ?? '')),
-                ':created_at' => (string)($log['created_at'] ?? date('c')),
+                ':created_at' => (string)($task['created_at'] ?? date('c')),
             ]);
             if ($insertStmt->rowCount() > 0) {
                 $inserted++;
@@ -433,7 +439,7 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
             $touchStmt->execute([':fp_id' => $fpId]);
         }
 
-        $advanceStmt->execute([':last_log_id' => $maxLogId]);
+        $advanceStmt->execute([':last_task_id' => $maxTaskId]);
         $db->commit();
     } catch (Throwable $e) {
         if ($db->inTransaction()) $db->rollBack();
@@ -441,11 +447,11 @@ if ($method === 'POST' && $action === 'analyze_geo_usage') {
     }
 
     apiOk([
-        'checked_logs' => count($logs),
-        'matched_logs' => $matched,
+        'checked_tasks' => count($tasks),
+        'matched_tasks' => $matched,
         'inserted' => $inserted,
         'updated_fps' => count($touchedFpIds),
-        'last_log_id' => $maxLogId,
+        'last_task_id' => $maxTaskId,
     ]);
 }
 

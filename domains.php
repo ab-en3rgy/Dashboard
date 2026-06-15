@@ -1,6 +1,6 @@
 <?php
 // domains.php - Domains and FP
-// @version 1.0.2
+// @version 1.0.3
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 
@@ -487,8 +487,8 @@ async function analyzeGeoUsage() {
         }
         const message = [
             'Geo analysis complete.',
-            'Checked logs: ' + (json.checked_logs || 0),
-            'Matched logs: ' + (json.matched_logs || 0),
+            'Checked tasks: ' + (json.checked_tasks || 0),
+            'Matched tasks: ' + (json.matched_tasks || 0),
             'Inserted links: ' + (json.inserted || 0),
             'Updated FP: ' + (json.updated_fps || 0)
         ].join('\n');

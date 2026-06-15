@@ -22,6 +22,21 @@
 - App secrets and DB credentials are stored on the server in `/var/www/fbads/config/local.env`.
 - Do not paste raw secret values into future commits or public logs.
 
+## If SSH / Update Stops Working
+1. Check basic network reachability from the local machine:
+   - `Test-NetConnection 149.33.41.79 -Port 22`
+   - if the setup uses another SSH port, test that port too.
+2. If the port is reachable but SSH still fails, verify the private key permissions on Windows:
+   - `cmd /c icacls C:\Users\user\Key`
+   - if Windows reports the key is too open, remove the sandbox/user ACL entry that was added by Codex:
+     - `cmd /c icacls C:\Users\user\Key /remove WIN-N4V0BT9ATOF\CodexSandboxUsers`
+3. Re-run the SSH probe with the key after fixing permissions:
+   - `& 'C:\WINDOWS\System32\OpenSSH\ssh.exe' -o ConnectTimeout=10 -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -i 'C:\Users\user\Key' -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p 22 root@149.33.41.79 'hostname; cd /var/www/fbads && git rev-parse --short HEAD && php -v | head -n 1'`
+4. If SSH connects but the update still fails, check the server-side update flow:
+   - `cd /var/www/fbads && ./scripts/server/update.sh`
+   - inspect `git status`, `php -l` output, and any script error messages.
+5. If the web app loads but deployment looks stale, confirm the checked-out commit on the VPS before editing anything else.
+
 ## Update Flow
 1. Change code locally.
 2. Commit and push to GitHub.
