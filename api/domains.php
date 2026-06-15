@@ -1,6 +1,6 @@
 <?php
 // api/domains.php — CRUD for domains_fp (session auth)
-// @version 1.0.3
+// @version 1.0.4
 //
 // GET  ?action=list&bm=123&geo=AR
 // POST { action: create|update|delete, ...fields }
@@ -84,6 +84,40 @@ function ensureDomainUsageColumns(PDO $db): void {
     ");
 }
 
+function ensureDomainGeoAnalysisSchema(PDO $db): void {
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS public.domains_fp_geo_usage (
+            id          bigserial       PRIMARY KEY,
+            log_id      bigint          NOT NULL UNIQUE,
+            fp_id       bigint          NOT NULL REFERENCES public.domains_fp(id) ON DELETE CASCADE,
+            geo         char(2)         NOT NULL,
+            bm_id       varchar(20)     NOT NULL DEFAULT '',
+            account_id  text            NOT NULL DEFAULT '',
+            page_id     varchar(255)    NOT NULL DEFAULT '',
+            fp_name     varchar(255)    NOT NULL DEFAULT '',
+            created_at  timestamptz     NOT NULL DEFAULT now()
+        )
+    ");
+    $db->exec("
+        CREATE INDEX IF NOT EXISTS idx_dfp_geo_usage_fp_geo ON public.domains_fp_geo_usage (fp_id, geo)
+    ");
+    $db->exec("
+        CREATE INDEX IF NOT EXISTS idx_dfp_geo_usage_log ON public.domains_fp_geo_usage (log_id DESC)
+    ");
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS public.domains_fp_geo_scan_state (
+            id smallint PRIMARY KEY,
+            last_log_id bigint NOT NULL DEFAULT 0,
+            updated_at timestamptz NOT NULL DEFAULT now()
+        )
+    ");
+    $db->exec("
+        INSERT INTO public.domains_fp_geo_scan_state (id, last_log_id)
+        VALUES (1, 0)
+        ON CONFLICT (id) DO NOTHING
+    ");
+}
+
 function loadBmOptions(PDO $db, array $me, bool $isAdmin): array {
     if ($isAdmin) {
         $stmt = $db->query("
@@ -111,6 +145,7 @@ ensureDomainStatusColumn($db);
 ensureDomainUserColumn($db);
 ensureDomainDeliveryColumns($db);
 ensureDomainUsageColumns($db);
+ensureDomainGeoAnalysisSchema($db);
 
 // ── Validation ────────────────────────────────────────────────
 function validateDomain(array $b): ?string {
@@ -299,6 +334,118 @@ if ($method === 'GET' && $action === 'list') {
             'active' => (int)($statusCounts['active'] ?? 0),
             'banned' => (int)($statusCounts['banned'] ?? 0),
         ],
+    ]);
+}
+
+if ($method === 'POST' && $action === 'analyze_geo_usage') {
+    if (!$isAdmin) apiError(403, 'Admin only');
+
+    $stateStmt = $db->query("SELECT last_log_id FROM public.domains_fp_geo_scan_state WHERE id = 1 LIMIT 1");
+    $lastLogId = (int)($stateStmt ? $stateStmt->fetchColumn() : 0);
+
+    $logStmt = $db->prepare("
+        SELECT gl.id, gl.task_id, gl.created_at, gl.payload, gl.campaign_id, gl.adset_id, gl.account_id, gl.bm_id
+        FROM public.global_log gl
+        WHERE gl.id > :last_log_id
+          AND gl.event_type = 'fb_result'
+          AND gl.status = 'done'
+          AND gl.action = 'create_campaign'
+        ORDER BY gl.id ASC
+        LIMIT 5000
+    ");
+    $logStmt->execute([':last_log_id' => $lastLogId]);
+    $logs = $logStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (!$logs) {
+        apiOk([
+            'checked_logs' => 0,
+            'matched_logs' => 0,
+            'inserted' => 0,
+            'updated_fps' => 0,
+            'last_log_id' => $lastLogId,
+        ]);
+    }
+
+    $insertStmt = $db->prepare("
+        INSERT INTO public.domains_fp_geo_usage
+            (log_id, fp_id, geo, bm_id, account_id, page_id, fp_name, created_at)
+        VALUES
+            (:log_id, :fp_id, :geo, :bm_id, :account_id, :page_id, :fp_name, :created_at)
+        ON CONFLICT (log_id) DO NOTHING
+    ");
+    $touchStmt = $db->prepare("
+        UPDATE public.domains_fp d
+        SET used_geos = COALESCE((
+                SELECT to_jsonb(array_agg(x.geo ORDER BY x.geo))
+                FROM (
+                    SELECT DISTINCT g.geo
+                    FROM public.domains_fp_geo_usage g
+                    WHERE g.fp_id = :fp_id
+                ) x
+            ), '[]'::jsonb),
+            updated_at = NOW()
+        WHERE d.id = :fp_id
+    ");
+    $advanceStmt = $db->prepare("
+        UPDATE public.domains_fp_geo_scan_state
+        SET last_log_id = :last_log_id,
+            updated_at = NOW()
+        WHERE id = 1
+    ");
+
+    $matched = 0;
+    $inserted = 0;
+    $touchedFpIds = [];
+    $maxLogId = $lastLogId;
+
+    $db->beginTransaction();
+    try {
+        foreach ($logs as $log) {
+            $maxLogId = max($maxLogId, (int)$log['id']);
+            $payload = json_decode((string)($log['payload'] ?? '{}'), true);
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $fpId = (int)($payload['fp_id'] ?? 0);
+            $geo = strtoupper(trim((string)($payload['geo'] ?? '')));
+            if ($fpId <= 0 || !preg_match('/^[A-Z]{2}$/', $geo)) {
+                continue;
+            }
+
+            $insertStmt->execute([
+                ':log_id' => (int)$log['id'],
+                ':fp_id' => $fpId,
+                ':geo' => $geo,
+                ':bm_id' => trim((string)($payload['bm_id'] ?? $log['bm_id'] ?? '')),
+                ':account_id' => trim((string)($payload['account_id'] ?? $log['account_id'] ?? '')),
+                ':page_id' => trim((string)($payload['page_id'] ?? '')),
+                ':fp_name' => trim((string)($payload['fp_name'] ?? $payload['fp_label'] ?? '')),
+                ':created_at' => (string)($log['created_at'] ?? date('c')),
+            ]);
+            if ($insertStmt->rowCount() > 0) {
+                $inserted++;
+            }
+            $matched++;
+            $touchedFpIds[$fpId] = true;
+        }
+
+        foreach (array_keys($touchedFpIds) as $fpId) {
+            $touchStmt->execute([':fp_id' => $fpId]);
+        }
+
+        $advanceStmt->execute([':last_log_id' => $maxLogId]);
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        apiError(500, 'Geo analysis failed: ' . $e->getMessage());
+    }
+
+    apiOk([
+        'checked_logs' => count($logs),
+        'matched_logs' => $matched,
+        'inserted' => $inserted,
+        'updated_fps' => count($touchedFpIds),
+        'last_log_id' => $maxLogId,
     ]);
 }
 

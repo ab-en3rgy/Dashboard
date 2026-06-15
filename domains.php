@@ -1,6 +1,6 @@
 <?php
 // domains.php - Domains and FP
-// @version 1.0.1
+// @version 1.0.2
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 
@@ -154,6 +154,7 @@ tr:hover td{background:var(--bg)}
     </div>
 
     <?php if ($isAdmin): ?>
+    <button class="tb-btn" id="analyzeGeoBtn" onclick="analyzeGeoUsage()">Analyze Geo</button>
     <button class="tb-btn primary ml-auto" onclick="openModal()">+ Add</button>
     <?php else: ?>
     <div class="ml-auto"></div>
@@ -462,6 +463,42 @@ async function saveRecord() {
         el.textContent=e.message; el.style.display='';
     } finally {
         btn.disabled=false; btn.textContent='Save';
+    }
+}
+
+async function analyzeGeoUsage() {
+    if (!IS_ADMIN) return;
+    const btn = document.getElementById('analyzeGeoBtn');
+    if (!btn) return;
+
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Analyzing...';
+    try {
+        const res = await fetch('/api/domains.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action: 'analyze_geo_usage' })
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            alert(json.error || 'Geo analysis error');
+            return;
+        }
+        const message = [
+            'Geo analysis complete.',
+            'Checked logs: ' + (json.checked_logs || 0),
+            'Matched logs: ' + (json.matched_logs || 0),
+            'Inserted links: ' + (json.inserted || 0),
+            'Updated FP: ' + (json.updated_fps || 0)
+        ].join('\n');
+        alert(message);
+        load();
+    } catch (e) {
+        alert(e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = prevText;
     }
 }
 
