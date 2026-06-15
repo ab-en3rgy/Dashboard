@@ -1,6 +1,6 @@
 <?php
 // api/ext/domains_fp.php
-// @version 1.0.2
+// @version 1.0.3
 // External API for Domains & FP configuration sync.
 // POST { secret, bm, geo, domain, fp_name, page_id, pixel_id, status }
 // POST { secret, items: [ ...same records... ] }
@@ -73,6 +73,7 @@ function ensureDomainsFpSchema(PDO $db): void
             fp_name     varchar(255)    NOT NULL DEFAULT '',
             page_id     varchar(255)    NOT NULL DEFAULT '',
             pixel_id    varchar(255)    NOT NULL DEFAULT '',
+            used_geos   jsonb           NOT NULL DEFAULT '[]'::jsonb,
             fp_url      varchar(2048)   NOT NULL DEFAULT '',
             status      varchar(10)     NOT NULL DEFAULT 'active',
             created_at  timestamptz     NOT NULL DEFAULT now(),
@@ -109,6 +110,10 @@ function ensureDomainsFpSchema(PDO $db): void
     ");
     $db->exec("
         ALTER TABLE public.domains_fp
+            ADD COLUMN IF NOT EXISTS used_geos jsonb NOT NULL DEFAULT '[]'::jsonb
+    ");
+    $db->exec("
+        ALTER TABLE public.domains_fp
             ADD COLUMN IF NOT EXISTS fp_url varchar(2048) NOT NULL DEFAULT ''
     ");
     $db->exec("
@@ -139,6 +144,10 @@ function ensureDomainsFpSchema(PDO $db): void
     $db->exec("
         CREATE INDEX IF NOT EXISTS idx_dfp_lookup_sync
             ON public.domains_fp (bm, geo, domain, fp_name, page_id, pixel_id)
+    ");
+    $db->exec("
+        CREATE INDEX IF NOT EXISTS idx_dfp_used_geos
+            ON public.domains_fp USING GIN (used_geos)
     ");
 }
 

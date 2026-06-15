@@ -1,5 +1,6 @@
 <?php
 // api/domains.php — CRUD for domains_fp (session auth)
+// @version 1.0.2
 //
 // GET  ?action=list&bm=123&geo=AR
 // POST { action: create|update|delete, ...fields }
@@ -73,6 +74,16 @@ function ensureDomainDeliveryColumns(PDO $db): void {
     ");
 }
 
+function ensureDomainUsageColumns(PDO $db): void {
+    $db->exec("
+        ALTER TABLE public.domains_fp
+        ADD COLUMN IF NOT EXISTS used_geos jsonb NOT NULL DEFAULT '[]'::jsonb
+    ");
+    $db->exec("
+        CREATE INDEX IF NOT EXISTS idx_dfp_used_geos ON public.domains_fp USING GIN (used_geos)
+    ");
+}
+
 function loadBmOptions(PDO $db, array $me, bool $isAdmin): array {
     if ($isAdmin) {
         $stmt = $db->query("
@@ -99,6 +110,7 @@ function loadBmOptions(PDO $db, array $me, bool $isAdmin): array {
 ensureDomainStatusColumn($db);
 ensureDomainUserColumn($db);
 ensureDomainDeliveryColumns($db);
+ensureDomainUsageColumns($db);
 
 // ── Validation ────────────────────────────────────────────────
 function validateDomain(array $b): ?string {
@@ -185,8 +197,10 @@ if ($method === 'GET' && $action === 'list') {
         $countWhere[] = 'bm = :bm'; $countParams['bm'] = $bm;
     }
     if ($geo !== '') {
-        $where[] = 'd.geo = :geo'; $params['geo'] = $geo;
-        $countWhere[] = 'geo = :geo'; $countParams['geo'] = $geo;
+        $where[] = "(d.geo = :geo OR COALESCE(d.used_geos, '[]'::jsonb) ? :geo)";
+        $params['geo'] = $geo;
+        $countWhere[] = "(geo = :geo OR COALESCE(used_geos, '[]'::jsonb) ? :geo)";
+        $countParams['geo'] = $geo;
     }
     $where[] = 'd.status = :status';
     $params['status'] = $status;
@@ -198,7 +212,7 @@ if ($method === 'GET' && $action === 'list') {
     $total = (int)$cnt->fetchColumn();
 
     $stmt = $db->prepare("
-        SELECT d.id, d.bm AS bm_id, bm.name AS bm_name, d.geo, d.domain, d.fp_name, d.page_id, d.pixel_id, d.status, d.user_id,
+        SELECT d.id, d.bm AS bm_id, bm.name AS bm_name, d.geo, d.used_geos, d.domain, d.fp_name, d.page_id, d.pixel_id, d.status, d.user_id,
                u.username AS owner_username,
                COALESCE(u.display_name, u.username) AS owner_name,
                d.created_at, d.updated_at
@@ -214,15 +228,49 @@ if ($method === 'GET' && $action === 'list') {
     $geoRules = loadGeoRulesConfig();
     foreach ($rows as &$row) {
         $row['fp_geo_group'] = fpGeoGroupForGeo($geoRules, (string)($row['geo'] ?? ''));
+        $usedGeos = json_decode((string)($row['used_geos'] ?? '[]'), true);
+        $row['used_geos'] = array_values(array_filter(array_map(
+            static fn($geo): string => strtoupper(trim((string)$geo)),
+            is_array($usedGeos) ? $usedGeos : []
+        ), static fn(string $geo): bool => (bool)preg_match('/^[A-Z]{2}$/', $geo)));
     }
     unset($row);
 
-    $scopeWhere = $isAdmin ? '' : 'WHERE user_id = :current_user_id';
-    $scopeParams = $isAdmin ? [] : ['current_user_id' => (int)$me['id']];
     $bms = loadBmOptions($db, $me, $isAdmin);
-    $geosStmt = $db->prepare("SELECT DISTINCT geo FROM public.domains_fp $scopeWhere ORDER BY geo");
-    $geosStmt->execute($scopeParams);
-    $geos = $geosStmt->fetchAll(PDO::FETCH_COLUMN);
+    $geoWhere = [];
+    $geoParams = [];
+    if (!$isAdmin) {
+        $geoWhere[] = 'd.user_id = :current_user_id';
+        $geoParams['current_user_id'] = (int)$me['id'];
+    }
+    if ($bm !== '') {
+        $geoWhere[] = 'd.bm = :bm';
+        $geoParams['bm'] = $bm;
+    }
+    $geoWhere[] = 'd.status = :status';
+    $geoParams['status'] = $status;
+    $geoWhereSQL = $geoWhere ? 'WHERE ' . implode(' AND ', $geoWhere) : '';
+    $geoStmt = $db->prepare("
+        SELECT d.geo, d.used_geos
+        FROM public.domains_fp d
+        $geoWhereSQL
+    ");
+    $geoStmt->execute($geoParams);
+    $geos = [];
+    foreach ($geoStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $geoRow) {
+        $baseGeo = strtoupper(trim((string)($geoRow['geo'] ?? '')));
+        if (preg_match('/^[A-Z]{2}$/', $baseGeo) && !in_array($baseGeo, $geos, true)) {
+            $geos[] = $baseGeo;
+        }
+        $usedGeos = json_decode((string)($geoRow['used_geos'] ?? '[]'), true);
+        foreach (is_array($usedGeos) ? $usedGeos : [] as $usedGeo) {
+            $usedGeo = strtoupper(trim((string)$usedGeo));
+            if (preg_match('/^[A-Z]{2}$/', $usedGeo) && !in_array($usedGeo, $geos, true)) {
+                $geos[] = $usedGeo;
+            }
+        }
+    }
+    sort($geos);
     $statusStmt = $db->prepare("
         SELECT status, COUNT(*) AS cnt
         FROM public.domains_fp
@@ -277,8 +325,8 @@ if ($method === 'POST' && $action === 'duplicate') {
     if (!$id) apiError(400, 'id required');
 
     $stmt = $db->prepare("
-        INSERT INTO public.domains_fp (bm, geo, domain, fp_name, page_id, pixel_id, status, user_id)
-        SELECT bm, geo, domain, fp_name, page_id, pixel_id, status, user_id
+        INSERT INTO public.domains_fp (bm, geo, domain, fp_name, page_id, pixel_id, used_geos, status, user_id)
+        SELECT bm, geo, domain, fp_name, page_id, pixel_id, used_geos, status, user_id
         FROM public.domains_fp
         WHERE id = :id
         RETURNING id

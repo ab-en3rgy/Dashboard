@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder.php
-// @version 1.0.11
+// @version 1.0.12
 // Session-auth API for the New Campaign task generator.
 
 require __DIR__ . '/_bootstrap.php';
@@ -141,6 +141,7 @@ function ensureDomainsFpSchema(PDO $db): void
             fp_name     varchar(255)    NOT NULL DEFAULT '',
             page_id     varchar(255)    NOT NULL DEFAULT '',
             pixel_id    varchar(255)    NOT NULL DEFAULT '',
+            used_geos   jsonb           NOT NULL DEFAULT '[]'::jsonb,
             fp_url      varchar(2048)   NOT NULL DEFAULT '',
             status      varchar(10)     NOT NULL DEFAULT 'active',
             created_at  timestamptz     NOT NULL DEFAULT now(),
@@ -164,6 +165,10 @@ function ensureDomainsFpSchema(PDO $db): void
             ADD COLUMN IF NOT EXISTS pixel_id varchar(255) NOT NULL DEFAULT ''
     ");
     $db->exec("
+        ALTER TABLE public.domains_fp
+            ADD COLUMN IF NOT EXISTS used_geos jsonb NOT NULL DEFAULT '[]'::jsonb
+    ");
+    $db->exec("
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -181,6 +186,7 @@ function ensureDomainsFpSchema(PDO $db): void
     $db->exec("CREATE INDEX IF NOT EXISTS idx_dfp_bm_geo ON public.domains_fp (bm, geo)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_dfp_status ON public.domains_fp (status)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_dfp_user   ON public.domains_fp (user_id)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_dfp_used_geos ON public.domains_fp USING GIN (used_geos)");
 }
 
 function builderBmInSql(array $bmIds): array
@@ -617,9 +623,8 @@ function fetchBmEligibleAccounts(PDO $db, string $bmId, string $geo): array
 
 function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): array
 {
-    $params = [':geo' => $geo];
-    $where = ['d.status = :status', 'd.geo = :geo'];
-    $params[':status'] = 'active';
+    $params = [':geo' => $geo, ':status' => 'active'];
+    $where = ['d.status = :status'];
     if (($me['role'] ?? '') !== 'admin') {
         $where[] = 'd.user_id = :user_id';
         $params[':user_id'] = (int)$me['id'];
@@ -628,15 +633,20 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
     if (!$allowedBmIds) return [];
 
     $stmt = $db->prepare("
-        SELECT d.id, d.bm, d.geo, d.domain, d.fp_name, d.page_id, d.pixel_id,
+        SELECT d.id, d.bm, d.geo, d.used_geos, d.domain, d.fp_name, d.page_id, d.pixel_id,
                bm.id::text AS bm_id,
                bm.name AS bm_name,
-               COALESCE(fta.fbtool_id, '') AS fbtool_id
+               COALESCE(fta.fbtool_id, '') AS fbtool_id,
+               CASE
+                   WHEN d.geo = :geo THEN 1
+                   WHEN COALESCE(d.used_geos, '[]'::jsonb) ? :geo THEN 1
+                   ELSE 0
+               END AS geo_match
         FROM public.domains_fp d
         LEFT JOIN public.business_managers bm ON bm.id::text = d.bm
         LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
         WHERE " . implode(' AND ', $where) . "
-        ORDER BY COALESCE(bm.name, d.bm), d.id
+        ORDER BY geo_match DESC, COALESCE(bm.name, d.bm), d.id
     ");
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -664,13 +674,16 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
             'bm_id' => $bmId,
             'bm_name' => $bmName,
             'geo' => (string)$row['geo'],
+            'used_geos' => decodeUsedGeos($row['used_geos'] ?? '[]'),
             'domain' => (string)$row['domain'],
             'fp_name' => (string)$row['fp_name'],
             'page_id' => (string)($row['page_id'] ?? ''),
             'pixel_id' => (string)($row['pixel_id'] ?? ''),
             'title' => $bmLabel . ' | ' . $row['geo'] . ' | ' . $row['domain'] . ' | ' . $row['fp_name']
+                . (($used = decodeUsedGeos($row['used_geos'] ?? '[]')) ? ' | Used: ' . implode(', ', $used) : '')
                 . ((string)($row['page_id'] ?? '') !== '' ? ' | Page ' . $row['page_id'] : '')
                 . ((string)($row['pixel_id'] ?? '') !== '' ? ' | Pixel ' . $row['pixel_id'] : ''),
+            'geo_match' => (int)($row['geo_match'] ?? 0) === 1,
             'accounts_count' => $accountsCount,
             'fbtool_id' => (string)($row['fbtool_id'] ?? ''),
         ];
@@ -680,15 +693,61 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
 
 function fetchFpById(PDO $db, array $me, array $allowedBmIds, int $fpId): ?array
 {
-    $stmt = $db->prepare("SELECT geo, page_id, pixel_id FROM public.domains_fp WHERE id = :id LIMIT 1");
-    $stmt->execute([':id' => $fpId]);
-    $configRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $geo = strtoupper(trim((string)($configRow['geo'] ?? '')));
-    if ($geo === '') return null;
-    foreach (fetchGeoFps($db, $me, $allowedBmIds, $geo) as $fp) {
-        if ((int)$fp['id'] === $fpId) return $fp;
+    if (!$allowedBmIds) return null;
+
+    $ph = [];
+    $params = [':id' => $fpId, ':status' => 'active'];
+    foreach (array_values($allowedBmIds) as $i => $bmId) {
+        $key = ":bm_{$i}";
+        $ph[] = $key;
+        $params[$key] = (string)$bmId;
     }
-    return null;
+
+    $where = ['d.id = :id', 'd.status = :status', 'd.bm IN (' . implode(',', $ph) . ')'];
+    if (($me['role'] ?? '') !== 'admin') {
+        $where[] = 'd.user_id = :user_id';
+        $params[':user_id'] = (int)$me['id'];
+    }
+
+    $stmt = $db->prepare("
+        SELECT d.id, d.bm, d.geo, d.used_geos, d.domain, d.fp_name, d.page_id, d.pixel_id,
+               bm.id::text AS bm_id,
+               bm.name AS bm_name,
+               COALESCE(fta.fbtool_id, '') AS fbtool_id
+        FROM public.domains_fp d
+        LEFT JOIN public.business_managers bm ON bm.id::text = d.bm
+        LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
+        WHERE " . implode(' AND ', $where) . "
+        LIMIT 1
+    ");
+    $stmt->execute($params);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+
+    $bmId = trim((string)($row['bm_id'] ?? ''));
+    $bmName = trim((string)($row['bm_name'] ?? ''));
+    if ($bmId === '') {
+        $legacyBm = legacyBuilderBmLookup($db, $allowedBmIds, (string)($row['bm'] ?? ''));
+        if (!$legacyBm) return null;
+        $bmId = (string)$legacyBm['bm_id'];
+        $bmName = (string)$legacyBm['bm_name'];
+    }
+
+    $bmLabel = $bmName !== '' ? $bmName : $bmId;
+    return [
+        'id' => (int)$row['id'],
+        'bm_id' => $bmId,
+        'bm_name' => $bmName,
+        'geo' => (string)$row['geo'],
+        'used_geos' => decodeUsedGeos($row['used_geos'] ?? '[]'),
+        'domain' => (string)$row['domain'],
+        'fp_name' => (string)$row['fp_name'],
+        'page_id' => (string)($row['page_id'] ?? ''),
+        'pixel_id' => (string)($row['pixel_id'] ?? ''),
+        'title' => $bmLabel . ' | ' . $row['geo'] . ' | ' . $row['domain'] . ' | ' . $row['fp_name'],
+        'accounts_count' => 0,
+        'fbtool_id' => (string)($row['fbtool_id'] ?? ''),
+    ];
 }
 
 function legacyBuilderBmLookup(PDO $db, array $allowedBmIds, string $legacyBm): ?array
@@ -765,7 +824,6 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
     if ($fpId <= 0) apiError(400, 'fp_id required');
     $fp = fetchFpById($db, $me, $allowedBmIds, $fpId);
     if (!$fp) apiError(404, 'Fan page not found');
-    if ((string)$fp['geo'] !== $geo) apiError(400, 'Fan page geo mismatch');
 
     $accountIds = normalizeStringList($body['account_ids'] ?? []);
     $creativeNames = normalizeStringList($body['creative_names'] ?? []);
@@ -869,6 +927,7 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
     }
 
     if (!$created) apiError(409, 'No eligible accounts left for this fan page');
+    markDomainsFpGeoUsage($db, $fpId, $geo);
 
     apiOk([
         'created' => array_map(static fn(array $row): array => [
@@ -881,6 +940,55 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
         'skipped_account_ids' => array_values($skipped),
     ], [
         'count' => count($created),
+    ]);
+}
+
+function decodeUsedGeos(mixed $raw): array
+{
+    if (is_array($raw)) {
+        $values = $raw;
+    } else {
+        $values = json_decode((string)$raw, true);
+        if (!is_array($values)) {
+            $values = [];
+        }
+    }
+
+    $out = [];
+    foreach ($values as $value) {
+        $geo = strtoupper(trim((string)$value));
+        if (preg_match('/^[A-Z]{2}$/', $geo) && !in_array($geo, $out, true)) {
+            $out[] = $geo;
+        }
+    }
+    sort($out);
+    return $out;
+}
+
+function markDomainsFpGeoUsage(PDO $db, int $fpId, string $geo): void
+{
+    if ($fpId <= 0 || !preg_match('/^[A-Z]{2}$/', $geo)) {
+        return;
+    }
+
+    $stmt = $db->prepare("SELECT used_geos FROM public.domains_fp WHERE id = :id LIMIT 1");
+    $stmt->execute([':id' => $fpId]);
+    $usedGeos = decodeUsedGeos($stmt->fetchColumn());
+    if (in_array($geo, $usedGeos, true)) {
+        return;
+    }
+
+    $usedGeos[] = $geo;
+    sort($usedGeos);
+    $update = $db->prepare("
+        UPDATE public.domains_fp
+        SET used_geos = :used_geos,
+            updated_at = NOW()
+        WHERE id = :id
+    ");
+    $update->execute([
+        ':id' => $fpId,
+        ':used_geos' => json_encode($usedGeos, JSON_UNESCAPED_SLASHES),
     ]);
 }
 

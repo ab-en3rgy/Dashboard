@@ -1,5 +1,6 @@
 <?php
 // domains.php - Domains and FP
+// @version 1.0.1
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 
@@ -82,6 +83,9 @@ tr:hover td{background:var(--bg)}
 /* BADGES */
 .bm-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:4px;background:#e8eaf6;color:#3949ab;font-weight:800;font-size:12px;letter-spacing:.5px}
 .geo-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;background:var(--blue-bg);color:var(--blue);font-weight:700;font-size:12px;letter-spacing:.5px}
+.geo-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.geo-tag{display:inline-flex;align-items:center;padding:2px 7px;border-radius:999px;background:#eef3ff;color:#2f5bd3;font-weight:700;font-size:11px;line-height:1}
+.geo-note{font-size:11px;color:var(--text3);margin-top:4px}
 .status-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-weight:700;font-size:12px}
 .status-active{background:var(--green-bg);color:var(--green)}
 .status-banned{background:var(--red-bg);color:var(--red)}
@@ -162,7 +166,7 @@ tr:hover td{background:var(--bg)}
         <thead>
           <tr>
             <th style="width:70px">BM</th>
-            <th style="width:60px">Geo</th>
+            <th style="width:90px">Geo / Used</th>
             <th style="width:90px">Status</th>
             <th>Domain</th>
             <th>FP Name</th>
@@ -198,6 +202,7 @@ tr:hover td{background:var(--bg)}
         <div class="form-row">
           <label>Geo <span style="color:var(--red)">*</span></label>
           <input id="fGeo" maxlength="2" placeholder="AR" oninput="this.value=this.value.toUpperCase()">
+          <div class="hint">Used as a note; campaign launches will mark geo usage automatically.</div>
         </div>
       </div>
       <div class="form-row">
@@ -386,9 +391,13 @@ function renderTable(rows) {
         </div></td>` : '';
         const status = r.status === 'banned' ? 'banned' : 'active';
         const fpGroupText = Array.isArray(r.fp_geo_group) && r.fp_geo_group.length ? ` <span class="dim">(${esc(r.fp_geo_group.join(', '))})</span>` : '';
+        const usedGeos = Array.isArray(r.used_geos) ? r.used_geos.filter(g => /^[A-Z]{2}$/.test(String(g || '').trim())) : [];
+        const usedGeoHtml = usedGeos.length
+            ? `<div class="geo-tags">${usedGeos.map(g => `<span class="geo-tag">${esc(g)}</span>`).join('')}</div>`
+            : `<div class="geo-note">No usage yet</div>`;
         html += `<tr>
             <td><span class="bm-badge">${esc(r.bm_name || r.bm_id || r.bm)}</span><div class="dim">${esc(r.bm_id || r.bm || '')}</div></td>
-            <td><span class="geo-badge">${esc(r.geo)}</span></td>
+            <td><div><span class="geo-badge">${esc(r.geo || '—')}</span></div>${usedGeoHtml}</td>
             <td><span class="status-badge status-${status}">${status === 'banned' ? 'Banned' : 'Active'}</span></td>
             <td class="domain-cell">${esc(r.domain)||'—'}</td>
             <td class="fp-name">${esc(r.fp_name)||'—'}${fpGroupText}</td>

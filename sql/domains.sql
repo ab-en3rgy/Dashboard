@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS public.domains_fp (
     fp_name     varchar(255)    NOT NULL DEFAULT '',
     page_id     varchar(255)    NOT NULL DEFAULT '',
     pixel_id    varchar(255)    NOT NULL DEFAULT '',
+    used_geos   jsonb           NOT NULL DEFAULT '[]'::jsonb,
     fp_url      varchar(2048)   NOT NULL DEFAULT '',
     status      varchar(10)     NOT NULL DEFAULT 'active'
         CONSTRAINT domains_fp_status_chk CHECK (status IN ('active', 'banned')),
@@ -53,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_dfp_geo    ON public.domains_fp (geo);
 CREATE INDEX IF NOT EXISTS idx_dfp_bm_geo ON public.domains_fp (bm, geo);
 CREATE INDEX IF NOT EXISTS idx_dfp_status ON public.domains_fp (status);
 CREATE INDEX IF NOT EXISTS idx_dfp_user   ON public.domains_fp (user_id);
+CREATE INDEX IF NOT EXISTS idx_dfp_used_geos ON public.domains_fp USING GIN (used_geos);
 
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
