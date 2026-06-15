@@ -623,8 +623,8 @@ function fetchBmEligibleAccounts(PDO $db, string $bmId, string $geo): array
 
 function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): array
 {
-    $params = [':geo' => $geo, ':status' => 'active'];
-    $where = ['d.status = :status'];
+    $params = [':geo' => $geo];
+    $where = [];
     if (($me['role'] ?? '') !== 'admin') {
         $where[] = 'd.user_id = :user_id';
         $params[':user_id'] = (int)$me['id'];
@@ -637,6 +637,7 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
                bm.id::text AS bm_id,
                bm.name AS bm_name,
                COALESCE(fta.fbtool_id, '') AS fbtool_id,
+               d.status AS fp_status,
                CASE
                    WHEN d.geo = :geo THEN 1
                    WHEN COALESCE(d.used_geos, '[]'::jsonb) ? :geo THEN 1
@@ -675,6 +676,11 @@ function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): arra
             'bm_name' => $bmName,
             'geo' => (string)$row['geo'],
             'used_geos' => decodeUsedGeos($row['used_geos'] ?? '[]'),
+            'fp_status' => (string)($row['fp_status'] ?? 'active'),
+            'eligible' => (bool)($row['geo_match'] ?? 0) && (string)($row['fp_status'] ?? 'active') === 'active',
+            'eligibility_reason' => (bool)($row['geo_match'] ?? 0)
+                ? ((string)($row['fp_status'] ?? 'active') === 'active' ? '' : 'FP is not active')
+                : 'FP geo does not match',
             'domain' => (string)$row['domain'],
             'fp_name' => (string)$row['fp_name'],
             'page_id' => (string)($row['page_id'] ?? ''),

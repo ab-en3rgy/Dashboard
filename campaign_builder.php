@@ -1,5 +1,5 @@
 <?php
-// @version 1.4.363
+// @version 1.4.364
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -788,12 +788,14 @@ function fillFps() {
   const sel = document.getElementById('fpId');
   const hint = document.getElementById('fpHint');
   const rows = state.fps || [];
-  sel.innerHTML = '<option value="">Select a fan page</option>' + rows.map(fp =>
-    `<option value="${fp.id}">${esc(fp.title)}${fp.bm_id ? ' (' + esc(fp.bm_id) + ')' : ''} | ${fmtNum(fp.accounts_count || 0)} eligible account${Number(fp.accounts_count || 0) === 1 ? '' : 's'}</option>`
-  ).join('');
+  sel.innerHTML = '<option value="">Select a fan page</option>' + rows.map(fp => {
+    const statusLabel = fp.eligible ? 'Available' : 'Unavailable';
+    const reason = fp.eligible ? '' : (fp.eligibility_reason || 'Not available');
+    return `<option value="${fp.id}" ${fp.eligible ? '' : 'disabled'}>${esc(fp.title)}${fp.bm_id ? ' (' + esc(fp.bm_id) + ')' : ''} | ${statusLabel}${reason ? ' - ' + esc(reason) : ''} | ${fmtNum(fp.accounts_count || 0)} eligible account${Number(fp.accounts_count || 0) === 1 ? '' : 's'}</option>`;
+  }).join('');
   sel.disabled = !rows.length;
   hint.textContent = rows.length
-    ? `${rows.length} fan page${rows.length === 1 ? '' : 's'} available for ${state.selectedGeo}. Each option shows eligible accounts for that BM on this geo.`
+    ? `${rows.length} fan page${rows.length === 1 ? '' : 's'} found for ${state.selectedGeo}. Available rows can be selected; unavailable rows are shown for transparency.`
     : 'No active fan pages found for this geo. Create one in Domains & FP, then return here.';
   if (!rows.length) {
     document.getElementById('formEmpty').style.display = 'block';
@@ -810,8 +812,9 @@ function fillFps() {
       </div>`;
   } else {
     document.getElementById('formEmpty').style.display = 'none';
-    if (rows.length === 1) {
-      sel.value = String(rows[0].id || '');
+    const eligibleRows = rows.filter(fp => fp.eligible);
+    if (eligibleRows.length === 1) {
+      sel.value = String(eligibleRows[0].id || '');
       void onFpChange();
     }
   }
