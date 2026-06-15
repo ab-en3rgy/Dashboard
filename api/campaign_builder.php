@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder.php
-// @version 1.0.10
+// @version 1.0.11
 // Session-auth API for the New Campaign task generator.
 
 require __DIR__ . '/_bootstrap.php';
@@ -11,7 +11,7 @@ const CAMPAIGN_BUILDER_DEFAULT_URL_PARAMS = 'sub_id_1={{ad.id}}&sub_id_2={{campa
 
 $bmIds = array_values(array_filter(array_map('strval', $auth->allowedBmIds($me))));
 if (!$bmIds) {
-    apiOk(['rows' => [], 'geo' => null, 'defaults' => [], 'creatives' => [], 'accounts' => []]);
+    apiOk(['rows' => [], 'geo' => null, 'defaults' => [], 'creatives' => [], 'fps' => [], 'accounts' => []]);
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -41,27 +41,27 @@ if ($method === 'GET' && $action === 'geo') {
 
     $defaults = geoRuleDefaults($geo);
     $creatives = fetchGeoCreatives($db, $bmInSql, $bmParams, $geo, $me);
-    $configs = fetchGeoConfigs($db, $me, $bmIds, $geo);
+    $fps = fetchGeoFps($db, $me, $bmIds, $geo);
 
     apiOk([
         'geo' => $geo,
         'defaults' => $defaults,
         'creatives' => $creatives,
-        'configs' => $configs,
+        'fps' => $fps,
     ], [
         'creatives_count' => count($creatives),
-        'configs_count' => count($configs),
+        'fps_count' => count($fps),
     ]);
 }
 
-if ($method === 'GET' && $action === 'config') {
-    $configId = (int)($_GET['config_id'] ?? 0);
-    if ($configId <= 0) apiError(400, 'config_id required');
-    $config = fetchConfigById($db, $me, $bmIds, $configId);
-    if (!$config) apiError(404, 'Configuration not found');
-    $accounts = fetchBmAvailableAccounts($db, (string)$config['bm_id'], (string)$config['geo']);
+if ($method === 'GET' && in_array($action, ['fp', 'config'], true)) {
+    $fpId = (int)($_GET['fp_id'] ?? $_GET['config_id'] ?? 0);
+    if ($fpId <= 0) apiError(400, 'fp_id required');
+    $fp = fetchFpById($db, $me, $bmIds, $fpId);
+    if (!$fp) apiError(404, 'Fan page not found');
+    $accounts = fetchBmEligibleAccounts($db, (string)$fp['bm_id'], (string)$fp['geo']);
     apiOk([
-        'config' => $config,
+        'fp' => $fp,
         'accounts' => $accounts,
     ], [
         'accounts_count' => count($accounts),
@@ -537,40 +537,27 @@ function fetchGeoAvailableAccounts(PDO $db, string $bmInSql, array $params, stri
             aa.status AS account_status,
             bm.id::text AS bm_id,
             bm.name AS bm_name,
-            (
-                SELECT COUNT(*)
-                FROM public.campaigns cx
-                WHERE cx.ad_account_id = aa.id
-                  AND COALESCE(cx.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                  AND COALESCE(cx.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                  AND (
-                      COALESCE(cx.status, '') = 'ACTIVE'
-                      OR COALESCE(cx.effective_status, '') = 'ACTIVE'
-                  )
-            ) AS active_campaigns,
-            COALESCE(fta.fbtool_id, '') AS fbtool_id
+            COALESCE(fta.fbtool_id, '') AS fbtool_id,
+            CASE
+                WHEN aa.status <> 1 THEN 0
+                WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
+                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 0
+                ELSE 1
+            END AS eligible,
+            CASE
+                WHEN aa.status <> 1 THEN 'Account inactive'
+                WHEN bm.is_active IS DISTINCT FROM TRUE THEN 'BM inactive'
+                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 'BM not synced'
+                ELSE ''
+            END AS eligibility_reason
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
         LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
         WHERE aa.bm_id IN {$bmInSql}
-          AND aa.status = 1
-          AND bm.is_active = TRUE
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.campaigns c
-              WHERE c.ad_account_id = aa.id
-                AND campaign_geo(c.name) = :geo
-                AND COALESCE(c.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND COALESCE(c.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND (
-                    COALESCE(c.status, '') = 'ACTIVE'
-                    OR COALESCE(c.effective_status, '') = 'ACTIVE'
-                )
-          )
-        ORDER BY active_campaigns ASC, bm.name ASC, aa.name ASC, aa.id ASC
+        ORDER BY eligible DESC, bm.name ASC, aa.name ASC, aa.id ASC
     ";
     $stmt = $db->prepare($sql);
-    $stmt->execute($params + [':geo' => $geo]);
+    $stmt->execute($params);
     return array_map(static function (array $row): array {
         return [
             'account_id' => (string)$row['account_id'],
@@ -578,13 +565,14 @@ function fetchGeoAvailableAccounts(PDO $db, string $bmInSql, array $params, stri
             'account_status' => (int)$row['account_status'],
             'bm_id' => (string)$row['bm_id'],
             'bm_name' => (string)$row['bm_name'],
-            'active_campaigns' => (int)$row['active_campaigns'],
             'fbtool_id' => (string)$row['fbtool_id'],
+            'eligible' => (bool)$row['eligible'],
+            'eligibility_reason' => (string)$row['eligibility_reason'],
         ];
     }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 
-function fetchBmAvailableAccounts(PDO $db, string $bmId, string $geo): array
+function fetchBmEligibleAccounts(PDO $db, string $bmId, string $geo): array
 {
     $stmt = $db->prepare("
         SELECT
@@ -593,39 +581,26 @@ function fetchBmAvailableAccounts(PDO $db, string $bmId, string $geo): array
             aa.status AS account_status,
             bm.id::text AS bm_id,
             bm.name AS bm_name,
-            (
-                SELECT COUNT(*)
-                FROM public.campaigns cx
-                WHERE cx.ad_account_id = aa.id
-                  AND COALESCE(cx.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                  AND COALESCE(cx.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                  AND (
-                      COALESCE(cx.status, '') = 'ACTIVE'
-                      OR COALESCE(cx.effective_status, '') = 'ACTIVE'
-                  )
-            ) AS active_campaigns,
-            COALESCE(fta.fbtool_id, '') AS fbtool_id
+            COALESCE(fta.fbtool_id, '') AS fbtool_id,
+            CASE
+                WHEN aa.status <> 1 THEN 0
+                WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
+                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 0
+                ELSE 1
+            END AS eligible,
+            CASE
+                WHEN aa.status <> 1 THEN 'Account inactive'
+                WHEN bm.is_active IS DISTINCT FROM TRUE THEN 'BM inactive'
+                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 'BM not synced'
+                ELSE ''
+            END AS eligibility_reason
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
         LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
         WHERE aa.bm_id::text = :bm_id
-          AND aa.status = 1
-          AND bm.is_active = TRUE
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.campaigns c
-              WHERE c.ad_account_id = aa.id
-                AND campaign_geo(c.name) = :geo
-                AND COALESCE(c.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND COALESCE(c.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND (
-                    COALESCE(c.status, '') = 'ACTIVE'
-                    OR COALESCE(c.effective_status, '') = 'ACTIVE'
-                )
-          )
-        ORDER BY active_campaigns ASC, aa.name ASC, aa.id ASC
+        ORDER BY eligible DESC, aa.name ASC, aa.id ASC
     ");
-    $stmt->execute([':bm_id' => $bmId, ':geo' => $geo]);
+    $stmt->execute([':bm_id' => $bmId]);
     return array_map(static function (array $row): array {
         return [
             'account_id' => (string)$row['account_id'],
@@ -633,13 +608,14 @@ function fetchBmAvailableAccounts(PDO $db, string $bmId, string $geo): array
             'account_status' => (int)$row['account_status'],
             'bm_id' => (string)$row['bm_id'],
             'bm_name' => (string)$row['bm_name'],
-            'active_campaigns' => (int)$row['active_campaigns'],
             'fbtool_id' => (string)$row['fbtool_id'],
+            'eligible' => (bool)$row['eligible'],
+            'eligibility_reason' => (string)$row['eligibility_reason'],
         ];
     }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 
-function fetchGeoConfigs(PDO $db, array $me, array $allowedBmIds, string $geo): array
+function fetchGeoFps(PDO $db, array $me, array $allowedBmIds, string $geo): array
 {
     $params = [':geo' => $geo];
     $where = ['d.status = :status', 'd.geo = :geo'];
@@ -678,7 +654,7 @@ function fetchGeoConfigs(PDO $db, array $me, array $allowedBmIds, string $geo): 
         }
         $cacheKey = $bmId . '|' . $geo;
         if (!array_key_exists($cacheKey, $accountsCache)) {
-            $accountsCache[$cacheKey] = fetchBmAvailableAccounts($db, $bmId, $geo);
+            $accountsCache[$cacheKey] = fetchBmEligibleAccounts($db, $bmId, $geo);
         }
         $accounts = $accountsCache[$cacheKey];
         $accountsCount = count($accounts);
@@ -702,15 +678,15 @@ function fetchGeoConfigs(PDO $db, array $me, array $allowedBmIds, string $geo): 
     return $out;
 }
 
-function fetchConfigById(PDO $db, array $me, array $allowedBmIds, int $configId): ?array
+function fetchFpById(PDO $db, array $me, array $allowedBmIds, int $fpId): ?array
 {
     $stmt = $db->prepare("SELECT geo, page_id, pixel_id FROM public.domains_fp WHERE id = :id LIMIT 1");
-    $stmt->execute([':id' => $configId]);
+    $stmt->execute([':id' => $fpId]);
     $configRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $geo = strtoupper(trim((string)($configRow['geo'] ?? '')));
     if ($geo === '') return null;
-    foreach (fetchGeoConfigs($db, $me, $allowedBmIds, $geo) as $cfg) {
-        if ((int)$cfg['id'] === $configId) return $cfg;
+    foreach (fetchGeoFps($db, $me, $allowedBmIds, $geo) as $fp) {
+        if ((int)$fp['id'] === $fpId) return $fp;
     }
     return null;
 }
@@ -785,19 +761,19 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
 {
     $geo = strtoupper(trim((string)($body['geo'] ?? '')));
     if (!preg_match('/^[A-Z]{2}$/', $geo)) apiError(400, 'geo must be 2 letters');
-    $configId = (int)($body['config_id'] ?? 0);
-    if ($configId <= 0) apiError(400, 'config_id required');
-    $config = fetchConfigById($db, $me, $allowedBmIds, $configId);
-    if (!$config) apiError(404, 'Configuration not found');
-    if ((string)$config['geo'] !== $geo) apiError(400, 'Configuration geo mismatch');
+    $fpId = (int)($body['fp_id'] ?? $body['config_id'] ?? 0);
+    if ($fpId <= 0) apiError(400, 'fp_id required');
+    $fp = fetchFpById($db, $me, $allowedBmIds, $fpId);
+    if (!$fp) apiError(404, 'Fan page not found');
+    if ((string)$fp['geo'] !== $geo) apiError(400, 'Fan page geo mismatch');
 
     $accountIds = normalizeStringList($body['account_ids'] ?? []);
     $creativeNames = normalizeStringList($body['creative_names'] ?? []);
     if (!$accountIds) apiError(400, 'Select at least one account');
     if (!$creativeNames) apiError(400, 'Select at least one creative');
 
-    $destUrl = normalizeUrl((string)($config['domain'] ?? ''));
-    if ($destUrl === '' || !filter_var($destUrl, FILTER_VALIDATE_URL)) apiError(400, 'Configuration domain must be a valid URL');
+    $destUrl = normalizeUrl((string)($fp['domain'] ?? ''));
+    if ($destUrl === '' || !filter_var($destUrl, FILTER_VALIDATE_URL)) apiError(400, 'Fan page domain must be a valid URL');
 
     $payloadBase = [
         'geo' => $geo,
@@ -805,12 +781,12 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
         'ads_num' => clampInt($body['ads_num'] ?? 1, 1, 50),
         'dest_url' => $destUrl,
         'url_params' => trim((string)($body['url_params'] ?? CAMPAIGN_BUILDER_DEFAULT_URL_PARAMS)) ?: CAMPAIGN_BUILDER_DEFAULT_URL_PARAMS,
-        'page_id' => trim((string)($body['page_id'] ?? $config['page_id'] ?? '')) ?: null,
-        'pixel_id' => trim((string)($body['pixel_id'] ?? $config['pixel_id'] ?? '')) ?: null,
+        'page_id' => trim((string)($body['page_id'] ?? $fp['page_id'] ?? '')) ?: null,
+        'pixel_id' => trim((string)($body['pixel_id'] ?? $fp['pixel_id'] ?? '')) ?: null,
         'pixel_mode' => strtolower(trim((string)($body['pixel_mode'] ?? 'auto'))) === 'manual' ? 'manual' : 'auto',
-        'fp_name' => (string)$config['fp_name'],
-        'domain_config_id' => $configId,
-        'domain_config_label' => (string)$config['title'],
+        'fp_id' => $fpId,
+        'fp_name' => (string)$fp['fp_name'],
+        'fp_label' => (string)$fp['title'],
         'daily_budget' => moneyNumber($body['daily_budget'] ?? null),
         'bid_amount' => moneyNumber($body['bid_amount'] ?? null),
         'bid_strategy_mode' => normalizeBidStrategy((string)($body['bid_strategy_mode'] ?? 'bidcap')),
@@ -839,7 +815,7 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
         apiError(400, 'bid_amount required unless strategy is auto');
     }
 
-    $availableAccounts = fetchAvailableAccountsMapForBm($db, (string)$config['bm_id'], $geo, $accountIds);
+    $availableAccounts = fetchAvailableAccountsMapForBm($db, (string)$fp['bm_id'], $geo, $accountIds);
     $createdBy = 'dashboard:' . (string)($me['username'] ?? $me['id'] ?? 'user');
     $priority = 200;
     $insert = $db->prepare("
@@ -863,7 +839,7 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
             $payload = $payloadBase;
             $payload['bm_id'] = (string)$account['bm_id'];
             $payload['account_id'] = $accountId;
-            $payload['bm_label'] = (string)$config['bm_id'];
+            $payload['bm_label'] = (string)$fp['bm_id'];
             $payload['account_name'] = (string)$account['account_name'];
             $payload['bm_name'] = (string)$account['bm_name'];
             $payload['fbtool_id'] = (string)$account['fbtool_id'];
@@ -892,7 +868,7 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
         apiError(500, 'Task creation failed: ' . $e->getMessage());
     }
 
-    if (!$created) apiError(409, 'No eligible accounts left for this geo');
+    if (!$created) apiError(409, 'No eligible accounts left for this fan page');
 
     apiOk([
         'created' => array_map(static fn(array $row): array => [
@@ -911,7 +887,7 @@ function createCampaignBuilderTasks(PDO $db, array $me, array $allowedBmIds, arr
 function fetchAvailableAccountsMap(PDO $db, array $allowedBmIds, string $geo, array $accountIds): array
 {
     $bmPh = [];
-    $params = [':geo' => $geo];
+    $params = [];
     foreach (array_values($allowedBmIds) as $i => $bmId) {
         $key = ":bm_{$i}";
         $bmPh[] = $key;
@@ -928,25 +904,16 @@ function fetchAvailableAccountsMap(PDO $db, array $allowedBmIds, string $geo, ar
             aa.id::text AS account_id,
             aa.name AS account_name,
             bm.id::text AS bm_id,
-            bm.name AS bm_name
+            bm.name AS bm_name,
+            COALESCE(fta.fbtool_id, '') AS fbtool_id
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
+        LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
         WHERE aa.bm_id IN (" . implode(',', $bmPh) . ")
           AND aa.id::text IN (" . implode(',', $accPh) . ")
           AND aa.status = 1
           AND bm.is_active = TRUE
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.campaigns c
-              WHERE c.ad_account_id = aa.id
-                AND campaign_geo(c.name) = :geo
-                AND COALESCE(c.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND COALESCE(c.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND (
-                    COALESCE(c.status, '') = 'ACTIVE'
-                    OR COALESCE(c.effective_status, '') = 'ACTIVE'
-                )
-          )
+          AND COALESCE(fta.fbtool_id, '') <> ''
     ";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
@@ -959,7 +926,7 @@ function fetchAvailableAccountsMap(PDO $db, array $allowedBmIds, string $geo, ar
 
 function fetchAvailableAccountsMapForBm(PDO $db, string $bmId, string $geo, array $accountIds): array
 {
-    $params = [':geo' => $geo, ':bm_id' => $bmId];
+    $params = [':bm_id' => $bmId];
     $accPh = [];
     foreach (array_values($accountIds) as $i => $accountId) {
         $key = ":acc_{$i}";
@@ -980,18 +947,7 @@ function fetchAvailableAccountsMapForBm(PDO $db, string $bmId, string $geo, arra
           AND aa.id::text IN (" . implode(',', $accPh) . ")
           AND aa.status = 1
           AND bm.is_active = TRUE
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.campaigns c
-              WHERE c.ad_account_id = aa.id
-                AND campaign_geo(c.name) = :geo
-                AND COALESCE(c.status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND COALESCE(c.effective_status, '') NOT IN ('DELETED', 'ARCHIVED')
-                AND (
-                    COALESCE(c.status, '') = 'ACTIVE'
-                    OR COALESCE(c.effective_status, '') = 'ACTIVE'
-                )
-          )
+          AND COALESCE(fta.fbtool_id, '') <> ''
     ";
     $stmt = $db->prepare($sql);
     $stmt->execute($params);

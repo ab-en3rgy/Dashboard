@@ -1,5 +1,5 @@
 <?php
-// @version 1.4.362
+// @version 1.4.363
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -406,7 +406,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
       <div class="panel-h">
         <div>
           <h2 id="formTitle">Select a geo</h2>
-          <div class="panel-sub" id="formSub">The builder will load creatives and eligible cabinets for the selected geo.</div>
+          <div class="panel-sub" id="formSub">The builder will load fan pages and eligible accounts for the selected geo.</div>
         </div>
       </div>
       <div class="panel-body">
@@ -415,14 +415,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
         <form id="builderForm" style="display:none" onsubmit="submitBuilder(event)">
           <div class="form-grid">
             <div class="form-row full">
-              <label for="configId">Configuration</label>
-              <select id="configId" onchange="onConfigChange()">
-                <option value="">Select a configuration</option>
+              <label for="fpId">Fan Page</label>
+              <select id="fpId" onchange="onFpChange()">
+                <option value="">Select a fan page</option>
               </select>
-              <div class="hint" id="configHint">Configurations come from Domains & FP for the selected geo.</div>
+              <div class="hint" id="fpHint">Fan pages come from Domains & FP for the selected geo.</div>
               <div class="actions-inline" style="margin-top:8px">
                 <button type="button" class="mini-btn" onclick="openDomainsFpForGeo()">Open Domains & FP</button>
-                <button type="button" class="mini-btn" onclick="createConfigHint()">How to create a config</button>
+                <button type="button" class="mini-btn" onclick="createFpHint()">How to create a fan page</button>
               </div>
             </div>
           </div>
@@ -478,7 +478,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
               <div class="form-row">
                 <label for="pageId">Page ID</label>
                 <input id="pageId" type="text" placeholder="Facebook Page ID">
-                <div class="hint">Loaded from the selected configuration. You can override it here.</div>
+                <div class="hint">Loaded from the selected fan page. You can override it here.</div>
               </div>
               <div class="form-row">
                 <label for="pixelMode">Pixel Mode</label>
@@ -491,7 +491,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
               <div class="form-row">
                 <label for="pixelId">Pixel ID</label>
                 <input id="pixelId" type="text" placeholder="Facebook Pixel ID" oninput="syncResolvedUrlParams()">
-                <div class="hint" id="pixelHint">Loaded from the selected configuration. You can override it here.</div>
+                <div class="hint" id="pixelHint">Loaded from the selected fan page. You can override it here.</div>
               </div>
             </div>
           </div>
@@ -516,7 +516,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
           <div class="section-block">
             <div class="section-head">
-              <h3>Cabinets</h3>
+              <h3>Accounts</h3>
               <div class="actions-inline">
                 <button type="button" class="mini-btn" onclick="setAccounts(true)">Select all</button>
                 <button type="button" class="mini-btn" onclick="setAccounts(false)">Clear</button>
@@ -563,7 +563,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
           <div id="formStatus" class="status-box"></div>
 
           <div class="submit-row">
-            <div class="submit-note" id="submitNote">Select at least one creative and one cabinet.</div>
+            <div class="submit-note" id="submitNote">Select at least one creative and one account.</div>
             <button id="submitBtn" class="submit-btn" type="submit">Create launch tasks</button>
           </div>
         </form>
@@ -585,9 +585,9 @@ const state = {
   selectedCreatives: new Set(),
   creativeTab: 'top',
   creativeSearch: '',
+  fps: [],
   accounts: [],
-  configs: [],
-  currentConfig: null,
+  currentFp: null,
 };
 
 async function fetchJson(url, options, timeoutMs = 12000) {
@@ -722,7 +722,7 @@ async function loadGeo(geo) {
   const title = document.getElementById('formTitle');
   const sub = document.getElementById('formSub');
   title.textContent = `Loading ${geo}...`;
-  sub.textContent = 'Fetching creatives and eligible cabinets.';
+  sub.textContent = 'Fetching fan pages, creatives, and eligible accounts.';
   document.getElementById('formEmpty').style.display = 'block';
   document.getElementById('builderForm').style.display = 'none';
   try {
@@ -732,14 +732,14 @@ async function loadGeo(geo) {
     state.selectedCreatives = new Set();
     state.creativeTab = 'top';
     state.creativeSearch = '';
-    state.configs = json.data.configs || [];
+    state.fps = json.data.fps || [];
     state.accounts = [];
-    state.currentConfig = null;
+    state.currentFp = null;
     history.replaceState(null, '', CAMPAIGN_BUILDER_PAGE + '?geo=' + encodeURIComponent(geo));
     fillForm();
   } catch (e) {
     title.textContent = `Failed to load ${geo}`;
-    sub.textContent = 'The builder could not fetch creatives or eligible cabinets.';
+    sub.textContent = 'The builder could not fetch fan pages, creatives, or eligible accounts.';
     document.getElementById('formEmpty').style.display = 'block';
     document.getElementById('formEmpty').textContent = e.message || 'Load failed';
     document.getElementById('builderForm').style.display = 'none';
@@ -751,7 +751,7 @@ function fillForm() {
   const defaults = state.defaults || {};
   state.urlParamsTemplate = defaults.url_params || DEFAULT_URL_PARAMS;
   document.getElementById('formTitle').textContent = `Build launch tasks for ${geo}`;
-  document.getElementById('formSub').textContent = `Last 30 days | ${state.creatives.length} creatives | ${state.accounts.length} eligible cabinets`;
+  document.getElementById('formSub').textContent = `Last 30 days | ${state.creatives.length} creatives | ${state.accounts.length} eligible accounts`;
   document.getElementById('formEmpty').style.display = 'none';
   document.getElementById('builderForm').style.display = 'block';
 
@@ -775,7 +775,7 @@ function fillForm() {
     ? 'Target geos from rule: ' + defaults.target_geos.join(', ')
     : 'No target geo override in geo rules.';
 
-  fillConfigs();
+  fillFps();
   renderCreatives();
   renderAccounts();
   syncBidFields();
@@ -784,25 +784,25 @@ function fillForm() {
   syncSubmitState();
 }
 
-function fillConfigs() {
-  const sel = document.getElementById('configId');
-  const hint = document.getElementById('configHint');
-  const rows = state.configs || [];
-  sel.innerHTML = '<option value="">Select a configuration</option>' + rows.map(cfg =>
-    `<option value="${cfg.id}">${esc(cfg.title)}${cfg.bm_id ? ' (' + esc(cfg.bm_id) + ')' : ''} | ${fmtNum(cfg.accounts_count || 0)} free cabinet${Number(cfg.accounts_count || 0) === 1 ? '' : 's'}</option>`
+function fillFps() {
+  const sel = document.getElementById('fpId');
+  const hint = document.getElementById('fpHint');
+  const rows = state.fps || [];
+  sel.innerHTML = '<option value="">Select a fan page</option>' + rows.map(fp =>
+    `<option value="${fp.id}">${esc(fp.title)}${fp.bm_id ? ' (' + esc(fp.bm_id) + ')' : ''} | ${fmtNum(fp.accounts_count || 0)} eligible account${Number(fp.accounts_count || 0) === 1 ? '' : 's'}</option>`
   ).join('');
   sel.disabled = !rows.length;
   hint.textContent = rows.length
-    ? `${rows.length} configuration${rows.length === 1 ? '' : 's'} available for ${state.selectedGeo}. Each option shows free cabinets for that BM on this geo.`
-    : 'No active configurations found for this geo. Create one in Domains & FP, then return here.';
+    ? `${rows.length} fan page${rows.length === 1 ? '' : 's'} available for ${state.selectedGeo}. Each option shows eligible accounts for that BM on this geo.`
+    : 'No active fan pages found for this geo. Create one in Domains & FP, then return here.';
   if (!rows.length) {
     document.getElementById('formEmpty').style.display = 'block';
     document.getElementById('formEmpty').innerHTML = `
       <div style="display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center">
-        <div>No configurations exist for ${esc(state.selectedGeo)} yet.</div>
+        <div>No fan pages exist for ${esc(state.selectedGeo)} yet.</div>
         <div style="max-width:560px;color:var(--text3);line-height:1.5">
           Create a record in Domains & FP with the BM, GEO, landing domain, fan page name, Page ID, and Pixel ID.
-          After that, the cabinets for that configuration will appear here automatically.
+          After that, the accounts for that fan page will appear here automatically.
         </div>
         <div class="actions-inline" style="justify-content:center">
           <button type="button" class="mini-btn" onclick="openDomainsFpForGeo()">Open Domains & FP</button>
@@ -810,16 +810,20 @@ function fillConfigs() {
       </div>`;
   } else {
     document.getElementById('formEmpty').style.display = 'none';
+    if (rows.length === 1) {
+      sel.value = String(rows[0].id || '');
+      void onFpChange();
+    }
   }
 }
 
-async function onConfigChange() {
+async function onFpChange() {
   clearStatusBox();
-  const configId = Number(document.getElementById('configId').value || 0);
-  state.currentConfig = null;
+  const fpId = Number(document.getElementById('fpId').value || 0);
+  state.currentFp = null;
   state.accounts = [];
-  if (!configId) {
-    document.getElementById('configHint').textContent = 'Configurations come from Domains & FP for the selected geo.';
+  if (!fpId) {
+    document.getElementById('fpHint').textContent = 'Fan pages come from Domains & FP for the selected geo.';
     document.getElementById('pixelMode').value = 'auto';
     document.getElementById('pageId').value = '';
     document.getElementById('pixelId').value = '';
@@ -828,19 +832,23 @@ async function onConfigChange() {
     syncSubmitState();
     return;
   }
-  const json = await fetchJson(CAMPAIGN_BUILDER_API + '?action=config&config_id=' + encodeURIComponent(configId));
-  state.currentConfig = json.data.config || null;
-  state.accounts = json.data.accounts || [];
-  if (state.currentConfig) {
-    document.getElementById('configHint').textContent =
-      `Selected: ${state.currentConfig.domain} | ${state.currentConfig.fp_name} | ${state.currentConfig.bm_name || state.currentConfig.bm_id}` +
-      `${state.currentConfig.bm_id ? ' | BM ' + state.currentConfig.bm_id : ''}` +
-      `${state.currentConfig.page_id ? ' | Page ' + state.currentConfig.page_id : ''}` +
-      `${state.currentConfig.pixel_id ? ' | Pixel ' + state.currentConfig.pixel_id : ''}` +
-      ` | ${fmtNum(state.accounts.length)} free cabinet${state.accounts.length === 1 ? '' : 's'}`;
-    document.getElementById('pageId').value = state.currentConfig.page_id || '';
-    document.getElementById('pixelMode').value = state.currentConfig.pixel_id ? 'manual' : 'auto';
-    document.getElementById('pixelId').value = state.currentConfig.pixel_id || '';
+  try {
+    const json = await fetchJson(CAMPAIGN_BUILDER_API + '?action=fp&fp_id=' + encodeURIComponent(fpId));
+    state.currentFp = json.data.fp || null;
+    state.accounts = json.data.accounts || [];
+    if (state.currentFp) {
+      document.getElementById('fpHint').textContent =
+        `Selected: ${state.currentFp.domain} | ${state.currentFp.fp_name} | ${state.currentFp.bm_name || state.currentFp.bm_id}` +
+        `${state.currentFp.bm_id ? ' | BM ' + state.currentFp.bm_id : ''}` +
+        `${state.currentFp.page_id ? ' | Page ' + state.currentFp.page_id : ''}` +
+        `${state.currentFp.pixel_id ? ' | Pixel ' + state.currentFp.pixel_id : ''}` +
+        ` | ${fmtNum(state.accounts.length)} eligible account${state.accounts.length === 1 ? '' : 's'}`;
+      document.getElementById('pageId').value = state.currentFp.page_id || '';
+      document.getElementById('pixelMode').value = state.currentFp.pixel_id ? 'manual' : 'auto';
+      document.getElementById('pixelId').value = state.currentFp.pixel_id || '';
+    }
+  } catch (e) {
+    document.getElementById('fpHint').textContent = e.message || 'Failed to load fan page details.';
   }
   renderAccounts();
   syncPixelFields();
@@ -953,37 +961,38 @@ function toggleCreativeSelection(input) {
 function renderAccounts() {
   const wrap = document.getElementById('accountsWrap');
   const hint = document.getElementById('accountsHint');
-  if (!state.currentConfig) {
-    wrap.innerHTML = '<div class="empty">Select a configuration to load cabinets for its BM. If none exist, create one in Domains & FP first.</div>';
+  if (!state.currentFp) {
+    wrap.innerHTML = '<div class="empty">Select a fan page to load accounts for its BM. If none exist, create one in Domains & FP first.</div>';
     hint.textContent = '';
     return;
   }
   if (!state.accounts.length) {
-    wrap.innerHTML = '<div class="empty">No cabinets are currently free for this config BM and geo.</div>';
+    wrap.innerHTML = '<div class="empty">No eligible accounts are currently available for this fan page and geo.</div>';
     hint.textContent = '';
     return;
   }
   const rows = [...state.accounts].sort((a, b) =>
-    Number(a.active_campaigns || 0) - Number(b.active_campaigns || 0) ||
+    Number(a.eligible ? 0 : 1) - Number(b.eligible ? 0 : 1) ||
     String(a.bm_name).localeCompare(String(b.bm_name)) ||
     String(a.account_name).localeCompare(String(b.account_name)) ||
     String(a.account_id).localeCompare(String(b.account_id))
   );
   wrap.innerHTML = rows.map(row => `
     <label class="check-item account-item">
-      <input type="checkbox" class="account-cb" value="${esc(row.account_id)}" onchange="syncSubmitState()">
+      <input type="checkbox" class="account-cb" value="${esc(row.account_id)}" onchange="syncSubmitState()" ${row.eligible ? '' : 'disabled'}>
       <div class="check-main">
         <div class="check-title">${esc(row.account_name)}</div>
         <div class="account-id">${esc(row.account_id)}</div>
         <div class="check-meta">
           <span class="account-bm">${esc(row.bm_name)}</span>
-          <span>Active campaigns ${fmtNum(row.active_campaigns || 0)}</span>
+          <span>${row.eligible ? 'Eligible' : 'Unavailable'}</span>
+          ${row.eligibility_reason ? `<span>${esc(row.eligibility_reason)}</span>` : ''}
           ${row.fbtool_id ? `<span class="account-fbtool">FBTool ${esc(row.fbtool_id)}</span>` : ''}
         </div>
       </div>
     </label>
   `).join('');
-  hint.textContent = `Showing ${rows.length} cabinet${rows.length === 1 ? '' : 's'} for ${state.currentConfig.bm_name}.`;
+  hint.textContent = `Showing ${rows.length} account${rows.length === 1 ? '' : 's'} for ${state.currentFp.bm_name}. Eligible rows are enabled; unavailable rows are shown for transparency.`;
 }
 
 function setCreatives(checked) {
@@ -998,7 +1007,10 @@ function setCreatives(checked) {
 }
 
 function setAccounts(checked) {
-  document.querySelectorAll('.account-cb').forEach(el => { el.checked = checked; });
+  document.querySelectorAll('.account-cb').forEach(el => {
+    if (el.disabled && checked) return;
+    el.checked = checked;
+  });
   syncSubmitState();
 }
 
@@ -1025,7 +1037,7 @@ function syncTextFields() {
 }
 
 function selectedValues(selector) {
-  return Array.from(document.querySelectorAll(selector)).filter(el => el.checked).map(el => el.value);
+  return Array.from(document.querySelectorAll(selector)).filter(el => el.checked && !el.disabled).map(el => el.value);
 }
 
 function syncSubmitState() {
@@ -1038,8 +1050,8 @@ function syncSubmitState() {
     el.classList.toggle('checked', !!cb?.checked);
   });
   const btn = document.getElementById('submitBtn');
-  btn.disabled = !state.selectedGeo || !state.currentConfig || creativesCount === 0 || accountsCount === 0 || (pixelMode === 'manual' && !pixelId);
-  document.getElementById('submitNote').textContent = `${creativesCount} creatives selected | ${accountsCount} cabinets selected`;
+  btn.disabled = !state.selectedGeo || !state.currentFp || creativesCount === 0 || accountsCount === 0 || (pixelMode === 'manual' && !pixelId);
+  document.getElementById('submitNote').textContent = `${creativesCount} creatives selected | ${accountsCount} accounts selected`;
 }
 
 async function submitBuilder(event) {
@@ -1050,7 +1062,7 @@ async function submitBuilder(event) {
   const body = {
     action: 'create',
     geo: state.selectedGeo,
-    config_id: Number(document.getElementById('configId').value || 0),
+    fp_id: Number(document.getElementById('fpId').value || 0),
     account_ids: accountIds,
     creative_names: creativeNames,
     url_params: document.getElementById('resolvedUrlParams').value.trim() || syncResolvedUrlParams(),
@@ -1100,7 +1112,7 @@ function openDomainsFpForGeo() {
   window.open(url, '_blank', 'noopener');
 }
 
-function createConfigHint() {
+function createFpHint() {
   alert('Open Domains & FP, click Add, and create a record for this GEO. Fill BM, landing domain, fan page name, Page ID, and Pixel ID there.');
 }
 
