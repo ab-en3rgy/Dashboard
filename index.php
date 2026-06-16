@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.457
+// @version 1.4.458
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -271,7 +271,24 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .rules-verdict{display:inline-flex;align-items:center;max-width:120px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:850;text-transform:uppercase;background:var(--bg);border:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help}
 .rules-verdict.stop,.rules-verdict.pause,.rules-verdict.pause_today,.rules-verdict.hold_stop,.rules-verdict.manual_stop{color:var(--red);background:var(--red-bg);border-color:#fecaca}
 .rules-verdict.start,.rules-verdict.restart_candidate,.rules-verdict.protect,.rules-verdict.ok{color:var(--green);background:var(--green-bg);border-color:#bbf7d0}
-.rules-verdict.watch,.rules-verdict.start_delayed,.rules-verdict.no_geo,.rules-verdict.no_rules,.rules-verdict.ignored_status,.rules-verdict.no_data{color:var(--text2);background:#f4f5f7;border-color:var(--border)}
+.rules-verdict.watch,.rules-verdict.start_delayed,.rules-verdict.no_geo,.rules-verdict.no_rules,.rules-verdict.ignored_status,.rules-verdict.no_data,.rules-verdict.no_da{color:var(--text2);background:#f4f5f7;border-color:var(--border)}
+[data-theme="dark"] .rules-verdict{background:var(--surface2,#0f172a);border-color:var(--border);color:var(--text2)}
+[data-theme="dark"] .rules-verdict.watch,
+[data-theme="dark"] .rules-verdict.start_delayed,
+[data-theme="dark"] .rules-verdict.no_geo,
+[data-theme="dark"] .rules-verdict.no_rules,
+[data-theme="dark"] .rules-verdict.ignored_status,
+[data-theme="dark"] .rules-verdict.no_data,
+[data-theme="dark"] .rules-verdict.no_da{background:#1e293b;border-color:#334155;color:#cbd5e1}
+[data-theme="dark"] .rules-verdict.stop,
+[data-theme="dark"] .rules-verdict.pause,
+[data-theme="dark"] .rules-verdict.pause_today,
+[data-theme="dark"] .rules-verdict.hold_stop,
+[data-theme="dark"] .rules-verdict.manual_stop{border-color:rgba(248,113,113,.25)}
+[data-theme="dark"] .rules-verdict.start,
+[data-theme="dark"] .rules-verdict.restart_candidate,
+[data-theme="dark"] .rules-verdict.protect,
+[data-theme="dark"] .rules-verdict.ok{border-color:rgba(74,222,128,.25)}
 .bid-cell{display:flex;align-items:center;justify-content:flex-end;gap:6px}
 .bid-value{font-weight:800;color:var(--text)}
 .bid-edit-btn{width:24px;height:24px;border:1px solid var(--border);background:var(--surface);color:var(--blue);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
