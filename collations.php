@@ -1,6 +1,6 @@
 <?php
 // collations.php
-// @version 1.0.5
+// @version 1.0.6
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 
@@ -23,16 +23,37 @@ $isAdmin = ($me['role'] === 'admin');
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Collations - Ads Dashboard</title>
+<meta name="color-scheme" content="light dark">
+<script>
+(function () {
+  const key = 'fb_ads_theme';
+  const stored = localStorage.getItem(key);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+})();
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#f0f2f5;--surface:#fff;
-  --border:#dddfe2;--border2:#ccd0d5;
+  --surface2:#f7f8fa;
+  --border:#dddfe2;--border2:#ccd0d5;--border-light:#e4e6eb;
   --text:#1c1e21;--text2:#65676b;--text3:#8a8d91;
-  --blue:#1877f2;--blue2:#166fe5;
-  --green:#31a24c;--red:#fa3e3e;
+  --blue:#1877f2;--blue2:#166fe5;--blue-bg:#e7f0fd;
+  --green:#31a24c;--green-bg:#e6f4ea;
+  --red:#fa3e3e;--red-bg:#fce8e8;
   --r:8px;--r2:6px;
+}
+:root[data-theme="dark"]{
+  --bg:#0b1220;--surface:#111827;--surface2:#0f172a;
+  --border:#243047;--border2:#334155;--border-light:#1f2a3d;
+  --text:#e5e7eb;--text2:#cbd5e1;--text3:#94a3b8;
+  --blue:#60a5fa;--blue2:#3b82f6;--blue-bg:rgba(96,165,250,.14);
+  --green:#4ade80;--green-bg:rgba(74,222,128,.12);
+  --red:#f87171;--red-bg:rgba(248,113,113,.12);
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh}
 .topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,.07);position:sticky;top:0;z-index:200}
@@ -78,6 +99,15 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .report-row-links{display:inline-flex;align-items:center;gap:3px;flex-shrink:0}
 .report-row-link{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 5px;border:1px solid var(--border);border-radius:5px;background:#f7f8fa;color:var(--text2);font-size:10px;font-weight:800;line-height:1;text-decoration:none}
 .report-row-link:hover{border-color:var(--blue);color:var(--blue);background:#eef5ff}
+[data-theme="dark"] .rtbl th{background:var(--surface2)}
+[data-theme="dark"] .rtbl td{border-bottom-color:var(--border-light)}
+[data-theme="dark"] .rtbl tr:hover td{background:#162033}
+[data-theme="dark"] .rtbl .total-row td{background:#172236;color:var(--text);border-top-color:var(--blue)}
+[data-theme="dark"] .report-row-link{background:var(--surface2);border-color:var(--border);color:var(--text2)}
+[data-theme="dark"] .report-row-link:hover{background:var(--blue-bg);border-color:var(--blue);color:var(--blue)}
+[data-theme="dark"] .result{background:var(--surface2)}
+[data-theme="dark"] #nicknamesModal{background:rgba(2,6,23,.72)!important}
+[data-theme="dark"] #nicknamesModal input{color:var(--text)}
 </style>
 </head>
 <body>
