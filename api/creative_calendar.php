@@ -1,6 +1,6 @@
 <?php
 // api/creative_calendar.php
-// @version 1.0.2
+// @version 1.0.3
 // GET /api/creative_calendar.php
 
 require __DIR__.'/_bootstrap.php';
@@ -40,10 +40,6 @@ $baseCte = "
         JOIN campaigns c ON c.id = a.campaign_id
         JOIN ad_accounts aa ON aa.id = a.ad_account_id
         WHERE aa.bm_id IN {$bmInSql}
-          AND aa.status = 1
-          AND COALESCE(a.status, '') != 'DELETED'
-          AND COALESCE(s.status, '') != 'DELETED'
-          AND COALESCE(c.status, '') != 'DELETED'
           AND a.name IS NOT NULL
           AND a.name <> ''
     ),
