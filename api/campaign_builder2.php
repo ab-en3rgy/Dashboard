@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.3
+// @version 1.0.4
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -189,15 +189,6 @@ function fetchBuilder2Geos(PDO $db, array $me, array $allowedBmIds, string $bmIn
         if (preg_match('/^[A-Z]{2}$/', $geo)) $geos[$geo] = true;
     }
 
-    $fpRows = fetchBuilder2FpConfigs($db, $me, $allowedBmIds, '');
-    foreach ($fpRows as $row) {
-        $geo = strtoupper(trim((string)$row['geo']));
-        if (preg_match('/^[A-Z]{2}$/', $geo)) $geos[$geo] = true;
-        foreach (($row['used_geos'] ?? []) as $usedGeo) {
-            $usedGeo = strtoupper(trim((string)$usedGeo));
-            if (preg_match('/^[A-Z]{2}$/', $usedGeo)) $geos[$usedGeo] = true;
-        }
-    }
     $out = array_keys($geos);
     sort($out);
     return $out;
