@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.5
+// @version 1.0.6
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -116,7 +116,7 @@ function builder2Readiness(array $account, string $geo, int $activeForGeo, int $
         return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'Blocked', 'block_reason' => (string)$account['account_block_reason'], 'warnings' => []];
     }
     if ($activeForGeo > 0) {
-        return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'Has GEO', 'block_reason' => 'Account already has an active campaign on this GEO.', 'warnings' => []];
+        $warnings[] = 'Account already has an active campaign on this GEO.';
     }
     if ($pendingForGeo > 0) {
         return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'Pending', 'block_reason' => 'A create campaign task is already pending or running for this GEO.', 'warnings' => []];
@@ -124,7 +124,7 @@ function builder2Readiness(array $account, string $geo, int $activeForGeo, int $
     return [
         'ready' => true,
         'status_key' => $warnings ? 'warn' : 'ready',
-        'status_label' => 'Ready',
+        'status_label' => $warnings ? 'Has GEO' : 'Ready',
         'block_reason' => '',
         'warnings' => $warnings,
     ];
