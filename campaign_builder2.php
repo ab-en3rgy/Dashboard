@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.2
+// @version 1.0.3
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -365,7 +365,7 @@ function renderRows() {
     <table>
       <thead><tr>
         <th class="check-cell"><input type="checkbox" onchange="toggleVisible(this.checked)"></th>
-        <th>Status</th><th>BM</th><th>Account</th><th>Active GEO</th><th>Reason</th>
+        <th>Status</th><th>BM</th><th>Account</th><th>Active RC</th><th>Active GEO</th><th>Reason</th>
       </tr></thead>
       <tbody>
         ${rows.map(rowHtml).join('')}
@@ -385,6 +385,7 @@ function rowHtml(row) {
       <td><span class="badge ${cls}">${esc(row.status_label)}</span></td>
       <td><div class="cell-title">${esc(row.bm_name || row.bm_id)}</div><div class="cell-sub mono">${esc(row.bm_id)}</div></td>
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
+      <td>${Number(row.active_campaigns_count || 0) ? '<span class="badge warn">' + num(row.active_campaigns_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge blocked">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td><div class="reason">${esc(reason)}</div></td>
     </tr>

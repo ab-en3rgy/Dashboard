@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.4
+// @version 1.0.5
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -54,6 +54,7 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
     $bms = fetchBuilder2Bms($db, $bmInSql, $bmParams);
     $geos = fetchBuilder2Geos($db, $me, $allowedBmIds, $bmInSql, $bmParams);
     $accounts = fetchBuilder2Accounts($db, $bmInSql, $bmParams);
+    $activeCampaignCounts = fetchBuilder2ActiveCampaignCounts($db, $bmInSql, $bmParams);
     $activeGeoCounts = fetchBuilder2ActiveGeoCounts($db, $bmInSql, $bmParams, $geo);
     $pendingTasks = fetchBuilder2PendingTasks($db, $bmInSql, $bmParams, $geo);
     $creativeRows = $geo !== '' ? fetchBuilder2GeoCreatives($db, $bmInSql, $bmParams, $geo, $me) : [];
@@ -63,6 +64,7 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
     foreach ($accounts as $account) {
         $accountId = (string)$account['account_id'];
         $activeForGeo = $geo !== '' ? (int)($activeGeoCounts[$accountId][$geo] ?? 0) : 0;
+        $activeCampaignCount = (int)($activeCampaignCounts[$accountId] ?? 0);
         $pendingForGeo = $geo !== '' ? (int)($pendingTasks[$accountId] ?? 0) : 0;
         $readiness = builder2Readiness($account, $geo, $activeForGeo, $pendingForGeo);
         $rows[] = [
@@ -73,6 +75,7 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
             'bm_name' => (string)$account['bm_name'],
             'eligible_account' => (bool)$account['eligible_account'],
             'account_block_reason' => (string)$account['account_block_reason'],
+            'active_campaigns_count' => $activeCampaignCount,
             'active_geo_count' => $activeForGeo,
             'pending_create_count' => $pendingForGeo,
             'active_geos' => array_keys($activeGeoCounts[$accountId] ?? []),
@@ -204,18 +207,17 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
             bm.id::text AS bm_id,
             bm.name AS bm_name,
             CASE
-                WHEN aa.status <> 1 THEN 0
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
                 ELSE 1
             END AS eligible_account,
             CASE
-                WHEN aa.status <> 1 THEN 'Account is not active'
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 'BM is inactive'
                 ELSE ''
             END AS account_block_reason
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
         WHERE aa.bm_id::text IN {$bmInSql}
+          AND aa.status = 1
         ORDER BY bm.name ASC, aa.name ASC, aa.id ASC
     ");
     $stmt->execute($params);
@@ -228,6 +230,31 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
         'eligible_account' => (bool)$row['eligible_account'],
         'account_block_reason' => (string)$row['account_block_reason'],
     ], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+}
+
+function fetchBuilder2ActiveCampaignCounts(PDO $db, string $bmInSql, array $params): array
+{
+    $stmt = $db->prepare("
+        SELECT
+            c.ad_account_id::text AS account_id,
+            COUNT(*) AS cnt
+        FROM public.campaigns c
+        JOIN public.ad_accounts aa ON aa.id = c.ad_account_id
+        WHERE aa.bm_id::text IN {$bmInSql}
+          AND COALESCE(c.status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
+          AND COALESCE(c.effective_status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
+          AND (
+              COALESCE(c.effective_status, '') = 'ACTIVE'
+              OR COALESCE(c.status, '') = 'ACTIVE'
+          )
+        GROUP BY c.ad_account_id
+    ");
+    $stmt->execute($params);
+    $map = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $map[(string)$row['account_id']] = (int)$row['cnt'];
+    }
+    return $map;
 }
 
 function fetchBuilder2ActiveGeoCounts(PDO $db, string $bmInSql, array $params, string $geo): array
