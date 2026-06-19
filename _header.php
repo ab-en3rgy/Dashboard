@@ -1,6 +1,6 @@
 <?php
 // _header.php - shared top bar for all dashboard pages
-// @version 1.2.0
+// @version 1.2.1
 // Requires: $me user array and connected _bootstrap.php or session
 $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 $impersonationAdmin = null;
@@ -402,6 +402,7 @@ if ($adminToken && $adminToken !== $currentToken && isset($auth) && $auth instan
         <a href="/" class="tb-link <?= $currentPage==='index' && (($_GET['view'] ?? '') !== 'tasks')?'primary':'' ?>">Dashboard</a>
         <a href="/?view=tasks" class="tb-link <?= $currentPage==='index' && (($_GET['view'] ?? '') === 'tasks')?'primary':'' ?>">Tasks</a>
         <a href="/campaign_builder.php" class="tb-link <?= $currentPage==='campaign_builder'?'primary':'' ?>">Campaign Builder</a>
+        <a href="/campaign_builder2.php" class="tb-link <?= $currentPage==='campaign_builder2'?'primary':'' ?>">Campaign Builder 2</a>
         <a href="/global_log.php" class="tb-link <?= $currentPage==='global_log'?'primary':'' ?>">Global Log</a>
         <a href="/collations.php" class="tb-link <?= $currentPage==='collations'?'primary':'' ?>">Collations</a>
         <!-- Creo Texts temporarily hidden by request; keep the route/file for possible future use.
