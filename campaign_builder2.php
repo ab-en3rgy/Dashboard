@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.0
+// @version 1.0.1
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -65,7 +65,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .panel-h{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px}
 .panel-h h2{font-size:14px;font-weight:800}
 .panel-body{padding:14px}
-.summary{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
 .metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;min-width:0}
 .metric span{display:block;color:var(--text3);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .metric strong{display:block;margin-top:4px;font-size:22px;font-weight:800;line-height:1}
@@ -125,7 +125,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue)}
       <option value="warn">Ready with warnings</option>
       <option value="blocked">Blocked</option>
     </select>
-    <input class="flt" id="searchInput" type="search" placeholder="Search account, BM, FP" oninput="renderRows()">
+    <input class="flt" id="searchInput" type="search" placeholder="Search account or BM" oninput="renderRows()">
     <button class="btn" type="button" onclick="loadInventory()">Refresh</button>
     <span class="subtle" id="loadState">Loading...</span>
   </div>
@@ -172,6 +172,18 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue)}
                 <option value="auto">Auto pixel</option>
                 <option value="manual">Configured pixel</option>
               </select>
+            </div>
+            <div class="form-row">
+              <label>Landing URL</label>
+              <input id="destUrl" type="text" placeholder="https://example.com">
+            </div>
+            <div class="form-row">
+              <label>Page ID</label>
+              <input id="pageId" type="text" placeholder="Facebook Page ID">
+            </div>
+            <div class="form-row">
+              <label>Pixel ID</label>
+              <input id="pixelId" type="text" placeholder="Optional in auto mode">
             </div>
             <div class="form-row">
               <label>Ad Sets</label>
@@ -302,14 +314,15 @@ function fillDefaults() {
   document.getElementById('approach').value = d.approach || 'rtp98';
   document.getElementById('textGeo').value = d.text_geo || state.geo || '';
   document.getElementById('urlParams').value = d.url_params || '';
+  document.getElementById('destUrl').value = d.dest_url || '';
+  document.getElementById('pageId').value = d.page_id || '';
+  document.getElementById('pixelId').value = d.pixel_id || '';
 }
 function renderSummary(s) {
   const cards = [
     ['Ready accounts', s.ready_accounts, 'ready'],
     ['Blocked accounts', s.blocked_accounts, 'bad'],
     ['Active on GEO', s.active_geo_accounts, ''],
-    ['FP configs', s.fp_configs, ''],
-    ['Pixels configured', s.configured_pixels, 'warn'],
     ['Pending tasks', s.pending_tasks, 'bad'],
     ['Creatives', s.creatives_total, ''],
     ['Ranked creatives', s.creatives_ranked, 'ready'],
@@ -330,7 +343,7 @@ function filteredRows() {
     if (status === 'warn' && row.status_key !== 'warn') return false;
     if (status === 'blocked' && row.status_key !== 'blocked') return false;
     if (!q) return true;
-    const hay = [row.account_name,row.account_id,row.bm_name,row.bm_id,row.fp?.fp_name,row.fp?.domain,row.block_reason].join(' ').toLowerCase();
+    const hay = [row.account_name,row.account_id,row.bm_name,row.bm_id,row.block_reason].join(' ').toLowerCase();
     return hay.includes(q);
   });
 }
@@ -346,7 +359,7 @@ function renderRows() {
     <table>
       <thead><tr>
         <th class="check-cell"><input type="checkbox" onchange="toggleVisible(this.checked)"></th>
-        <th>Status</th><th>BM</th><th>Account</th><th>FP / Domain</th><th>Pixel</th><th>Active GEO</th><th>Reason</th>
+        <th>Status</th><th>BM</th><th>Account</th><th>Active GEO</th><th>Reason</th>
       </tr></thead>
       <tbody>
         ${rows.map(rowHtml).join('')}
@@ -359,8 +372,6 @@ function rowHtml(row) {
   const checked = state.selectedAccounts.has(String(row.account_id)) ? 'checked' : '';
   const disabled = row.ready ? '' : 'disabled';
   const cls = row.status_key === 'ready' ? 'ready' : (row.status_key === 'warn' ? 'warn' : (row.status_key === 'idle' ? 'idle' : 'blocked'));
-  const fp = row.fp || {};
-  const pixel = fp.pixel_id ? `Pixel ${esc(fp.pixel_id)}` : 'Auto only';
   const reason = row.block_reason || (Array.isArray(row.warnings) && row.warnings.length ? row.warnings.join(' ') : 'Ready to queue.');
   return `
     <tr>
@@ -368,8 +379,6 @@ function rowHtml(row) {
       <td><span class="badge ${cls}">${esc(row.status_label)}</span></td>
       <td><div class="cell-title">${esc(row.bm_name || row.bm_id)}</div><div class="cell-sub mono">${esc(row.bm_id)}</div></td>
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
-      <td><div class="cell-title">${esc(fp.fp_name || 'No config')}</div><div class="cell-sub">${esc(fp.domain || '')}</div><div class="cell-sub mono">${fp.page_id ? 'Page ' + esc(fp.page_id) : ''}</div></td>
-      <td><span class="mono">${pixel}</span></td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge blocked">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td><div class="reason">${esc(reason)}</div></td>
     </tr>
@@ -455,6 +464,9 @@ function payload() {
     geo: state.geo,
     account_ids: Array.from(state.selectedAccounts),
     creative_names: Array.from(state.selectedCreatives),
+    dest_url: document.getElementById('destUrl').value,
+    page_id: document.getElementById('pageId').value,
+    pixel_id: document.getElementById('pixelMode').value === 'manual' ? document.getElementById('pixelId').value : '',
     daily_budget: document.getElementById('dailyBudget').value,
     bid_amount: document.getElementById('bidAmount').value,
     bid_strategy_mode: document.getElementById('bidStrategy').value,

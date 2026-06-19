@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.1
+// @version 1.0.2
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -50,38 +50,28 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
     $bms = fetchBuilder2Bms($db, $bmInSql, $bmParams);
     $geos = fetchBuilder2Geos($db, $me, $allowedBmIds, $bmInSql, $bmParams);
     $accounts = fetchBuilder2Accounts($db, $bmInSql, $bmParams);
-    $fps = fetchBuilder2FpConfigs($db, $me, $allowedBmIds, $geo);
     $activeGeoCounts = fetchBuilder2ActiveGeoCounts($db, $bmInSql, $bmParams, $geo);
     $pendingTasks = fetchBuilder2PendingTasks($db, $bmInSql, $bmParams, $geo);
     $creativeRows = $geo !== '' ? fetchBuilder2GeoCreatives($db, $bmInSql, $bmParams, $geo, $me) : [];
     $defaults = builder2Defaults($geo);
 
-    $fpsByBm = [];
-    foreach ($fps as $fp) {
-        $fpsByBm[(string)$fp['bm_id']][] = $fp;
-    }
-
     $rows = [];
     foreach ($accounts as $account) {
-        $bmId = (string)$account['bm_id'];
         $accountId = (string)$account['account_id'];
-        $fp = chooseBuilder2Fp($fpsByBm[$bmId] ?? []);
         $activeForGeo = $geo !== '' ? (int)($activeGeoCounts[$accountId][$geo] ?? 0) : 0;
         $pendingForGeo = $geo !== '' ? (int)($pendingTasks[$accountId] ?? 0) : 0;
-        $readiness = builder2Readiness($account, $fp, $geo, $activeForGeo, $pendingForGeo);
+        $readiness = builder2Readiness($account, $geo, $activeForGeo, $pendingForGeo);
         $rows[] = [
             'account_id' => $accountId,
             'account_name' => (string)$account['account_name'],
             'account_status' => (int)$account['account_status'],
-            'bm_id' => $bmId,
+            'bm_id' => (string)$account['bm_id'],
             'bm_name' => (string)$account['bm_name'],
-            'fbtool_id' => (string)$account['fbtool_id'],
             'eligible_account' => (bool)$account['eligible_account'],
             'account_block_reason' => (string)$account['account_block_reason'],
             'active_geo_count' => $activeForGeo,
             'pending_create_count' => $pendingForGeo,
             'active_geos' => array_keys($activeGeoCounts[$accountId] ?? []),
-            'fp' => $fp,
             'ready' => $readiness['ready'],
             'status_key' => $readiness['status_key'],
             'status_label' => $readiness['status_label'],
@@ -99,7 +89,7 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
             <=> [(string)$b['bm_name'], (string)$b['account_name'], (string)$b['account_id']];
     });
 
-    $summary = builder2SummarizeRows($rows, $fps, $creativeRows);
+    $summary = builder2SummarizeRows($rows, $creativeRows);
     return [
         'filters' => ['bms' => $bms, 'geos' => $geos],
         'summary' => $summary,
@@ -109,7 +99,7 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
     ];
 }
 
-function builder2Readiness(array $account, ?array $fp, string $geo, int $activeForGeo, int $pendingForGeo): array
+function builder2Readiness(array $account, string $geo, int $activeForGeo, int $pendingForGeo): array
 {
     $warnings = [];
     if ($geo === '') {
@@ -124,32 +114,19 @@ function builder2Readiness(array $account, ?array $fp, string $geo, int $activeF
     if ($pendingForGeo > 0) {
         return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'Pending', 'block_reason' => 'A create campaign task is already pending or running for this GEO.', 'warnings' => []];
     }
-    if (!$fp) {
-        return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'No FP', 'block_reason' => 'No active Domains & FP config for this BM and GEO.', 'warnings' => []];
-    }
-    if (trim((string)($fp['domain'] ?? '')) === '') {
-        return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'No domain', 'block_reason' => 'Domains & FP config has no landing domain.', 'warnings' => []];
-    }
-    if (trim((string)($fp['page_id'] ?? '')) === '') {
-        return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'No Page ID', 'block_reason' => 'Domains & FP config has no Page ID.', 'warnings' => []];
-    }
-    if (trim((string)($fp['pixel_id'] ?? '')) === '') {
-        $warnings[] = 'No configured pixel; auto pixel mode can still be used.';
-    }
     return [
         'ready' => true,
         'status_key' => $warnings ? 'warn' : 'ready',
-        'status_label' => $warnings ? 'Ready, auto pixel' : 'Ready',
+        'status_label' => 'Ready',
         'block_reason' => '',
         'warnings' => $warnings,
     ];
 }
 
-function builder2SummarizeRows(array $rows, array $fps, array $creativeRows): array
+function builder2SummarizeRows(array $rows, array $creativeRows): array
 {
     $summary = builder2EmptySummary();
     $summary['accounts_total'] = count($rows);
-    $summary['fp_configs'] = count($fps);
     $summary['creatives_total'] = count($creativeRows);
     foreach ($creativeRows as $creative) {
         if ((int)($creative['rank'] ?? 0) > 0 && (int)$creative['rank'] <= 10) $summary['creatives_ranked']++;
@@ -159,7 +136,6 @@ function builder2SummarizeRows(array $rows, array $fps, array $creativeRows): ar
         if ($row['status_key'] === 'blocked') $summary['blocked_accounts']++;
         if ((int)$row['pending_create_count'] > 0) $summary['pending_tasks'] += (int)$row['pending_create_count'];
         if ((int)$row['active_geo_count'] > 0) $summary['active_geo_accounts']++;
-        if (!empty($row['fp']['pixel_id'])) $summary['configured_pixels']++;
     }
     return $summary;
 }
@@ -172,8 +148,6 @@ function builder2EmptySummary(): array
         'blocked_accounts' => 0,
         'active_geo_accounts' => 0,
         'pending_tasks' => 0,
-        'fp_configs' => 0,
-        'configured_pixels' => 0,
         'creatives_total' => 0,
         'creatives_ranked' => 0,
     ];
@@ -234,22 +208,18 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
             aa.status AS account_status,
             bm.id::text AS bm_id,
             bm.name AS bm_name,
-            COALESCE(fta.fbtool_id, '') AS fbtool_id,
             CASE
                 WHEN aa.status <> 1 THEN 0
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
-                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 0
                 ELSE 1
             END AS eligible_account,
             CASE
                 WHEN aa.status <> 1 THEN 'Account is not active'
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 'BM is inactive'
-                WHEN COALESCE(fta.fbtool_id, '') = '' THEN 'BM is not linked to FBTool'
                 ELSE ''
             END AS account_block_reason
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
-        LEFT JOIN public.fbtool_accounts fta ON fta.id = bm.fbtool_account_id
         WHERE aa.bm_id::text IN {$bmInSql}
         ORDER BY bm.name ASC, aa.name ASC, aa.id ASC
     ");
@@ -260,77 +230,9 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
         'account_status' => (int)$row['account_status'],
         'bm_id' => (string)$row['bm_id'],
         'bm_name' => (string)$row['bm_name'],
-        'fbtool_id' => (string)$row['fbtool_id'],
         'eligible_account' => (bool)$row['eligible_account'],
         'account_block_reason' => (string)$row['account_block_reason'],
     ], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
-}
-
-function fetchBuilder2FpConfigs(PDO $db, array $me, array $allowedBmIds, string $geo): array
-{
-    if (!$allowedBmIds) return [];
-    [$bmInSql, $bmParams] = builder2BmInSql($allowedBmIds);
-    $params = $bmParams + [':status' => 'active', ':geo_exact' => $geo];
-    $where = ["d.bm IN {$bmInSql}", 'd.status = :status'];
-    if ($geo !== '') {
-        $params[':geo_used'] = $geo;
-        $where[] = "(d.geo = :geo_exact OR EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements_text(COALESCE(d.used_geos, '[]'::jsonb)) AS used_geo(val)
-            WHERE used_geo.val = :geo_used
-        ))";
-    }
-    if (($me['role'] ?? '') !== 'admin') {
-        $where[] = 'd.user_id = :user_id';
-        $params[':user_id'] = (int)$me['id'];
-    }
-    $stmt = $db->prepare("
-        SELECT
-            d.id,
-            d.bm AS bm_id,
-            COALESCE(bm.name, d.bm) AS bm_name,
-            d.geo,
-            d.used_geos,
-            d.domain,
-            d.fp_name,
-            d.page_id,
-            d.pixel_id,
-            d.fp_url,
-            CASE
-                WHEN :geo_exact = '' THEN 1
-                WHEN d.geo = :geo_exact THEN 2
-                ELSE 1
-            END AS match_score
-        FROM public.domains_fp d
-        LEFT JOIN public.business_managers bm ON bm.id::text = d.bm
-        WHERE " . implode(' AND ', $where) . "
-        ORDER BY match_score DESC, COALESCE(bm.name, d.bm) ASC, d.id DESC
-    ");
-    $stmt->execute($params);
-    return array_map(static function (array $row): array {
-        return [
-            'id' => (int)$row['id'],
-            'bm_id' => (string)$row['bm_id'],
-            'bm_name' => (string)$row['bm_name'],
-            'geo' => (string)$row['geo'],
-            'used_geos' => decodeBuilder2UsedGeos($row['used_geos'] ?? '[]'),
-            'domain' => (string)$row['domain'],
-            'fp_name' => (string)$row['fp_name'],
-            'page_id' => (string)$row['page_id'],
-            'pixel_id' => (string)$row['pixel_id'],
-            'fp_url' => (string)($row['fp_url'] ?? ''),
-        ];
-    }, $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
-}
-
-function chooseBuilder2Fp(array $fps): ?array
-{
-    foreach ($fps as $fp) {
-        if (trim((string)($fp['domain'] ?? '')) !== '' && trim((string)($fp['page_id'] ?? '')) !== '') {
-            return $fp;
-        }
-    }
-    return $fps[0] ?? null;
 }
 
 function fetchBuilder2ActiveGeoCounts(PDO $db, string $bmInSql, array $params, string $geo): array
@@ -559,11 +461,17 @@ function createBuilder2Tasks(PDO $db, array $me, array $allowedBmIds, string $bm
         'text_geo' => strtoupper(trim((string)($body['text_geo'] ?? ''))),
         'url_params' => trim((string)($body['url_params'] ?? CAMPAIGN_BUILDER2_DEFAULT_URL_PARAMS)) ?: CAMPAIGN_BUILDER2_DEFAULT_URL_PARAMS,
         'pixel_mode' => strtolower(trim((string)($body['pixel_mode'] ?? 'auto'))) === 'manual' ? 'manual' : 'auto',
+        'dest_url' => normalizeBuilder2Url((string)($body['dest_url'] ?? '')),
+        'page_id' => trim((string)($body['page_id'] ?? '')),
+        'pixel_id' => trim((string)($body['pixel_id'] ?? '')),
     ];
     if ($payloadSettings['daily_budget'] === null || $payloadSettings['daily_budget'] <= 0) apiError(400, 'daily_budget required');
     if ($payloadSettings['bid_strategy_mode'] !== 'auto' && ($payloadSettings['bid_amount'] === null || $payloadSettings['bid_amount'] <= 0)) {
         apiError(400, 'bid_amount required unless strategy is auto');
     }
+    if ($payloadSettings['dest_url'] === '' || !filter_var($payloadSettings['dest_url'], FILTER_VALIDATE_URL)) apiError(400, 'dest_url required');
+    if ($payloadSettings['page_id'] === '') apiError(400, 'page_id required');
+    if ($payloadSettings['pixel_mode'] === 'manual' && $payloadSettings['pixel_id'] === '') apiError(400, 'pixel_id required for manual pixel mode');
 
     $insert = $db->prepare("
         INSERT INTO public.tasks
@@ -585,29 +493,11 @@ function createBuilder2Tasks(PDO $db, array $me, array $allowedBmIds, string $bm
                 $skipped[] = ['account_id' => $accountId, 'reason' => $row['block_reason'] ?? 'Account is not ready'];
                 continue;
             }
-            $fp = $row['fp'] ?? null;
-            if (!$fp) {
-                $skipped[] = ['account_id' => $accountId, 'reason' => 'No Domains & FP config'];
-                continue;
-            }
-            $destUrl = normalizeBuilder2Url((string)$fp['domain']);
-            if ($destUrl === '' || !filter_var($destUrl, FILTER_VALIDATE_URL)) {
-                $skipped[] = ['account_id' => $accountId, 'reason' => 'Invalid landing domain'];
-                continue;
-            }
-            $pixelId = $payloadSettings['pixel_mode'] === 'manual' ? trim((string)($fp['pixel_id'] ?? '')) : '';
-            if ($payloadSettings['pixel_mode'] === 'manual' && $pixelId === '') {
-                $skipped[] = ['account_id' => $accountId, 'reason' => 'Manual pixel mode requires a configured pixel'];
-                continue;
-            }
             $payload = $payloadSettings + [
                 'geo' => $geo,
-                'dest_url' => $destUrl,
-                'page_id' => trim((string)$fp['page_id']) ?: null,
-                'pixel_id' => $pixelId !== '' ? $pixelId : null,
-                'fp_id' => (int)$fp['id'],
-                'fp_name' => (string)$fp['fp_name'],
-                'fp_label' => (string)$fp['bm_name'] . ' | ' . (string)$fp['geo'] . ' | ' . (string)$fp['domain'] . ' | ' . (string)$fp['fp_name'],
+                'dest_url' => $payloadSettings['dest_url'],
+                'page_id' => $payloadSettings['page_id'],
+                'pixel_id' => $payloadSettings['pixel_mode'] === 'manual' ? $payloadSettings['pixel_id'] : null,
                 'bm_id' => (string)$row['bm_id'],
                 'bm_label' => (string)$row['bm_id'],
                 'bm_name' => (string)$row['bm_name'],
@@ -634,7 +524,6 @@ function createBuilder2Tasks(PDO $db, array $me, array $allowedBmIds, string $bm
                 'status' => (string)$task['status'],
                 'created_at' => (string)$task['created_at'],
             ];
-            $usedFpIds[(int)$fp['id']] = true;
         }
         $db->commit();
     } catch (Throwable $e) {
@@ -642,9 +531,6 @@ function createBuilder2Tasks(PDO $db, array $me, array $allowedBmIds, string $bm
         apiError(500, 'Task creation failed: ' . $e->getMessage());
     }
 
-    foreach (array_keys($usedFpIds) as $fpId) {
-        markBuilder2FpGeoUsage($db, (int)$fpId, $geo);
-    }
     if (!$created) apiError(409, 'No ready accounts were queued');
     apiOk(['created' => $created, 'skipped' => $skipped], ['count' => count($created)]);
 }
@@ -750,32 +636,6 @@ function builder2BmInSql(array $bmIds): array
         $params[$key] = (string)$bmId;
     }
     return ['(' . implode(',', $ph) . ')', $params];
-}
-
-function decodeBuilder2UsedGeos(mixed $raw): array
-{
-    $values = is_array($raw) ? $raw : json_decode((string)$raw, true);
-    if (!is_array($values)) $values = [];
-    $out = [];
-    foreach ($values as $value) {
-        $geo = strtoupper(trim((string)$value));
-        if (preg_match('/^[A-Z]{2}$/', $geo) && !in_array($geo, $out, true)) $out[] = $geo;
-    }
-    sort($out);
-    return $out;
-}
-
-function markBuilder2FpGeoUsage(PDO $db, int $fpId, string $geo): void
-{
-    if ($fpId <= 0 || !preg_match('/^[A-Z]{2}$/', $geo)) return;
-    $stmt = $db->prepare("SELECT used_geos FROM public.domains_fp WHERE id = :id LIMIT 1");
-    $stmt->execute([':id' => $fpId]);
-    $used = decodeBuilder2UsedGeos($stmt->fetchColumn());
-    if (in_array($geo, $used, true)) return;
-    $used[] = $geo;
-    sort($used);
-    $update = $db->prepare("UPDATE public.domains_fp SET used_geos = :used_geos, updated_at = NOW() WHERE id = :id");
-    $update->execute([':id' => $fpId, ':used_geos' => json_encode($used, JSON_UNESCAPED_SLASHES)]);
 }
 
 function normalizeBuilder2StringList(mixed $value): array
