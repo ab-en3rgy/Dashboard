@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.2
+// @version 1.0.3
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -9,41 +9,45 @@ require_once __DIR__ . '/../lib/GlobalLogger.php';
 
 const CAMPAIGN_BUILDER2_DEFAULT_URL_PARAMS = 'sub_id_1={{ad.id}}&sub_id_2={{campaign.id}}&sub_id_3=14886&sub_id_4={{campaign.name}}&sub_id_5={{adset.id}}&sub_id_6={{adset.name}}&sub_id_7={{ad.name}}&sub_id_8={{placement}}&pixel={pixel}';
 
-$allowedBmIds = array_values(array_filter(array_map('strval', $auth->allowedBmIds($me))));
-if (!$allowedBmIds) {
-    apiOk([
-        'filters' => ['bms' => [], 'geos' => []],
-        'summary' => builder2EmptySummary(),
-        'rows' => [],
-        'creatives' => [],
-        'defaults' => builder2Defaults(''),
-    ]);
+try {
+    $allowedBmIds = array_values(array_filter(array_map('strval', $auth->allowedBmIds($me))));
+    if (!$allowedBmIds) {
+        apiOk([
+            'filters' => ['bms' => [], 'geos' => []],
+            'summary' => builder2EmptySummary(),
+            'rows' => [],
+            'creatives' => [],
+            'defaults' => builder2Defaults(''),
+        ]);
+    }
+
+    $method = $_SERVER['REQUEST_METHOD'];
+    $action = strtolower(trim((string)($_GET['action'] ?? 'inventory')));
+    $body = [];
+    if ($method === 'POST') {
+        $body = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($body)) apiError(400, 'Invalid JSON body');
+        $action = strtolower(trim((string)($body['action'] ?? $action ?: 'create')));
+    }
+
+    [$bmInSql, $bmParams] = builder2BmInSql($allowedBmIds);
+
+    if ($method === 'GET' && $action === 'inventory') {
+        $geo = strtoupper(trim((string)($_GET['geo'] ?? '')));
+        if ($geo !== '' && !preg_match('/^[A-Z]{2}$/', $geo)) apiError(400, 'geo must be 2 letters');
+        apiOk(fetchBuilder2Inventory($db, $me, $allowedBmIds, $bmInSql, $bmParams, $geo));
+    }
+
+    if ($method === 'POST' && $action === 'create') {
+        ensureBuilder2TasksSchema($db);
+        GlobalLogger::ensureSchema($db);
+        createBuilder2Tasks($db, $me, $allowedBmIds, $bmInSql, $bmParams, $body);
+    }
+
+    apiError(404, 'Unknown action');
+} catch (Throwable $e) {
+    apiError(500, $e->getMessage());
 }
-
-$method = $_SERVER['REQUEST_METHOD'];
-$action = strtolower(trim((string)($_GET['action'] ?? 'inventory')));
-$body = [];
-if ($method === 'POST') {
-    $body = json_decode(file_get_contents('php://input'), true);
-    if (!is_array($body)) apiError(400, 'Invalid JSON body');
-    $action = strtolower(trim((string)($body['action'] ?? $action ?: 'create')));
-}
-
-[$bmInSql, $bmParams] = builder2BmInSql($allowedBmIds);
-
-if ($method === 'GET' && $action === 'inventory') {
-    $geo = strtoupper(trim((string)($_GET['geo'] ?? '')));
-    if ($geo !== '' && !preg_match('/^[A-Z]{2}$/', $geo)) apiError(400, 'geo must be 2 letters');
-    apiOk(fetchBuilder2Inventory($db, $me, $allowedBmIds, $bmInSql, $bmParams, $geo));
-}
-
-if ($method === 'POST' && $action === 'create') {
-    ensureBuilder2TasksSchema($db);
-    GlobalLogger::ensureSchema($db);
-    createBuilder2Tasks($db, $me, $allowedBmIds, $bmInSql, $bmParams, $body);
-}
-
-apiError(404, 'Unknown action');
 
 function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string $bmInSql, array $bmParams, string $geo): array
 {

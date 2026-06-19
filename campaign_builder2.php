@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.1
+// @version 1.0.2
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -277,8 +277,14 @@ async function loadInventory() {
     const params = new URLSearchParams({ action: 'inventory' });
     if (state.geo) params.set('geo', state.geo);
     const res = await fetch(API + '?' + params.toString());
-    const json = await res.json();
-    if (!res.ok || !json.ok) throw new Error(json.error || 'Inventory API error');
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (parseErr) {
+      throw new Error((text || '').trim().slice(0, 240) || 'Empty API response');
+    }
+    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Inventory API error');
     const data = json.data || {};
     state.rows = data.rows || [];
     state.creatives = data.creatives || [];
@@ -493,8 +499,14 @@ async function queueSelected() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(payload())
     });
-    const json = await res.json();
-    if (!res.ok || !json.ok) throw new Error(json.error || 'Task creation failed');
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (parseErr) {
+      throw new Error((text || '').trim().slice(0, 240) || 'Empty API response');
+    }
+    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Task creation failed');
     const skipped = json.data?.skipped?.length || 0;
     showToast(`Queued ${json.count || 0} task${json.count === 1 ? '' : 's'}${skipped ? ', skipped ' + skipped : ''}.`, true);
     state.selectedAccounts.clear();
