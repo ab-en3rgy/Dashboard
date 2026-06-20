@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.465
+// @version 1.4.466
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -788,7 +788,12 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <button class="width-reset-btn icon" id="btnResetWidthsTop" onclick="resetTableColumnWidths()" title="Reset column widths" aria-label="Reset column widths" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18"/><path d="M3 16h10"/><path d="M13 4l4 4-4 4"/><path d="M11 12l4 4-4 4"/></svg>
     </button>
-    <div class="filter-field" id="reportVisibilityFiltersGeoTop" style="display:none;margin-right:6px">
+    <label class="width-balance-toggle" id="btnBalanceWidthsWrap" title="Keep columns balanced while resizing" style="display:none">
+      <input type="checkbox" id="btnBalanceWidthsTop" onchange="setTableColumnBalance(this.checked)">
+      <span class="width-balance-track"><span class="width-balance-knob"></span></span>
+      <span class="width-balance-label">Balance</span>
+    </label>
+    <div class="filter-field" id="reportVisibilityFiltersGeoTop" style="display:none;margin-left:6px">
       <label>Visibility</label>
       <div class="account-toggle-group">
         <label class="account-toggle" title="Hide rows with no traffic">
@@ -801,11 +806,6 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
         </label>
       </div>
     </div>
-    <label class="width-balance-toggle" id="btnBalanceWidthsWrap" title="Keep columns balanced while resizing" style="display:none">
-      <input type="checkbox" id="btnBalanceWidthsTop" onchange="setTableColumnBalance(this.checked)">
-      <span class="width-balance-track"><span class="width-balance-knob"></span></span>
-      <span class="width-balance-label">Balance</span>
-    </label>
   </div>
 </div>
 
