@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.460
+// @version 1.4.462
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -806,15 +806,15 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <div class="filter-field"><label for="fltAdset">Ad Set</label><select class="filter-select" id="fltAdset" onchange="setReportFilter('adset_id',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field"><label for="fltCreo">Creo</label><select class="filter-select" id="fltCreo" onchange="setReportFilter('ad_name',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field" id="deliveryControl"><label for="fltDelivery">Status</label><select class="filter-select small" id="fltDelivery" onchange="setDeliveryFilter(this.value || null)"><option value="">All</option><option value="ACTIVE">Active</option><option value="PAUSED">Paused</option></select></div>
-    <div class="filter-field" id="accountVisibilityFilters" style="display:none">
-      <label>Account filters</label>
+    <div class="filter-field" id="reportVisibilityFilters" style="display:none">
+      <label>Visibility</label>
       <div class="account-toggle-group">
-        <label class="account-toggle" title="Hide active accounts with no traffic">
-          <input type="checkbox" data-account-toggle="no-traffic" onchange="setAccountVisibilityFilter('hideNoTraffic', this.checked)">
+        <label class="account-toggle" title="Hide rows with no traffic">
+          <input type="checkbox" data-report-toggle="no-traffic" onchange="setReportVisibilityFilter('hideNoTraffic', this.checked)">
           <span>No traffic</span>
         </label>
-        <label class="account-toggle" title="Hide banned accounts">
-          <input type="checkbox" data-account-toggle="banned" onchange="setAccountVisibilityFilter('hideBanned', this.checked)">
+        <label class="account-toggle" title="Hide banned rows">
+          <input type="checkbox" data-report-toggle="banned" onchange="setReportVisibilityFilter('hideBanned', this.checked)">
           <span>Banned</span>
         </label>
       </div>
@@ -1051,6 +1051,7 @@ const TABLE_VIEW_CONTROLS = new Set(['bm','account','campaign','rules_check','ad
 const FILTER_ORDER = ['geo','bm_id','account_id','launch_date','campaign_id','adset_id','ad_name','v1_verdict','v2_verdict'];
 const ACCOUNT_FILTER_ACTIVE = '__all_active__';
 const ACCOUNT_FILTER_ALL = '__all_accounts__';
+const REPORT_VISIBILITY_VIEWS = new Set(['geo','campaign','rules_check','adset','ad','creo','topcreo']);
 const VIEW_LEVEL   = {bm:0, bm_cards:-1, account:1, campaign:2, rules_check:2, adset:3, ad:4, creo:5, topcreo:5, creative_calendar:5, camps_calendar:5, streams:-1, geo:-1, month:-1, geotrends:-1, geodiff:-1, trends:-1, geocabs:-1, tasks:-1};
 const REPORT_FILTERS_BY_VIEW = {
     bm: ['geo', 'delivery'],
@@ -1114,6 +1115,7 @@ const state = {
         v1_verdict: null,
         v2_verdict: null,
     },
+    reportVisibility: { hideNoTraffic: false, hideBanned: false },
     tabs: {
         geo:      { search: '', sortCol: 'stats.spend', sortDir: 'desc' },
         month:    { search: '', sortCol: 'day', sortDir: 'desc', period: '' },
@@ -1129,7 +1131,7 @@ const state = {
         tasks:    { search: '', status: '', sortCol: 'created_at', sortDir: 'desc' },
         bm_cards: { period: '14d' },
         bm:       { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
-        account:  { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc', hideNoTraffic: false, hideBanned: false },
+        account:  { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
         campaign: { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
         rules_check: { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
         adset:    { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
@@ -1183,9 +1185,30 @@ function finalizeCostStats(s) {
     out.cpd = out.deps > 0 ? out.spend / out.deps : 0;
     return out;
 }
-function accountHasTraffic(row) {
-    const p = row?.period || {};
-    return ['spend','impressions','clicks','leads','regs','deps','revenue'].some(key => Number(p[key] || 0) > 0);
+function reportRowStats(row) {
+    return row?.stats || row?.period || row || {};
+}
+function reportRowHasTraffic(row) {
+    const s = reportRowStats(row);
+    return ['spend','impressions','clicks','leads','regs','deps','revenue'].some(key => Number(s[key] || 0) > 0);
+}
+function reportRowIsBanned(row) {
+    if (typeof row?.status !== 'undefined' || typeof row?.effective_status !== 'undefined' || typeof row?.account_status !== 'undefined') {
+        return !isReallyActive(row);
+    }
+    const activeCount = Number(row?.camps_active ?? row?.ads_active ?? 0);
+    const totalCount = Number(row?.camps_total ?? row?.ads_total ?? 0);
+    if (totalCount > 0) return activeCount <= 0;
+    return false;
+}
+function applyReportVisibilityFilters(rows, view = state.view) {
+    const vis = state.reportVisibility || {};
+    if (!vis.hideNoTraffic && !vis.hideBanned) return rows;
+    return rows.filter(row => {
+        if (vis.hideBanned && reportRowIsBanned(row, view)) return false;
+        if (vis.hideNoTraffic && !reportRowIsBanned(row, view) && !reportRowHasTraffic(row)) return false;
+        return true;
+    });
 }
 function sumCostStats(items, getter = x => x?.stats) {
     const total = {spend:0, clicks:0, leads:0, regs:0, deps:0};
@@ -1411,12 +1434,12 @@ function pushURL(opts={}) {
         if (ts.delivery) p.set(tab+'_dlv', ts.delivery);
         if (ts.sortCol && ts.sortCol !== def.sortCol) p.set(tab+'_sort', ts.sortCol);
         if (ts.sortDir && ts.sortDir !== def.sortDir) p.set(tab+'_dir',  ts.sortDir);
-        if (ts.hideNoTraffic) p.set(tab+'_hide_no_traffic', '1');
-        if (ts.hideBanned) p.set(tab+'_hide_banned', '1');
         ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (ts[k] && ts[k] !== def[k]) p.set(tab+'_'+k, ts[k]);
         });
     });
+    if (state.reportVisibility.hideNoTraffic) p.set('report_hide_no_traffic', '1');
+    if (state.reportVisibility.hideBanned) p.set('report_hide_banned', '1');
 
     // Selections
     Object.entries(state.selections).forEach(([k,s]) => {
@@ -1454,12 +1477,12 @@ function readURL() {
         if ('delivery' in ts) ts.delivery = p.get(tab+'_dlv') || null;
         if ('sortCol' in ts) ts.sortCol = p.get(tab+'_sort') || ts.sortCol;
         if ('sortDir' in ts) ts.sortDir = p.get(tab+'_dir')  || ts.sortDir;
-        if ('hideNoTraffic' in ts) ts.hideNoTraffic = p.get(tab+'_hide_no_traffic') === '1';
-        if ('hideBanned' in ts) ts.hideBanned = p.get(tab+'_hide_banned') === '1';
         ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (k in ts) ts[k] = p.get(tab+'_'+k) || ts[k];
         });
     });
+    state.reportVisibility.hideNoTraffic = p.get('report_hide_no_traffic') === '1';
+    state.reportVisibility.hideBanned = p.get('report_hide_banned') === '1';
     if (p.has('stream_id') && !p.has('streams_stream_id')) {
         state.tabs.streams.stream_id = p.get('stream_id') || '';
     } else if (!p.has('streams_stream_id')) {
@@ -1531,10 +1554,8 @@ function clearAllReportFilters() {
     for (const view of Object.keys(state.tabs)) {
         if ('delivery' in state.tabs[view]) state.tabs[view].delivery = null;
     }
-    if (state.tabs.account) {
-        state.tabs.account.hideNoTraffic = false;
-        state.tabs.account.hideBanned = false;
-    }
+    state.reportVisibility.hideNoTraffic = false;
+    state.reportVisibility.hideBanned = false;
     renderFilterTags();
     renderDeliveryBadges();
     pushURL();
@@ -1614,7 +1635,7 @@ function ensureDefaultAccountFilter(view = state.view) {
 }
 
 function hasMeaningfulGlobalFilters() {
-    if (state.tabs.account?.hideNoTraffic || state.tabs.account?.hideBanned) return true;
+    if (state.reportVisibility.hideNoTraffic || state.reportVisibility.hideBanned) return true;
     return Object.entries(state.filters).some(([key, value]) => {
         if (!value) return false;
         if (key === 'account_id') return value !== ACCOUNT_FILTER_ALL;
@@ -1687,14 +1708,13 @@ function renderReportFilterSelects() {
     setFilterFieldVisible('fltDelivery', allowed.has('delivery'));
     const delivery = document.getElementById('fltDelivery');
     if (delivery) delivery.value = curTab().delivery || '';
-    setFilterFieldVisible('accountVisibilityFilters', state.view === 'account');
-    const accountVisibilityFilters = document.getElementById('accountVisibilityFilters');
-    if (accountVisibilityFilters) {
-        const accountTs = state.tabs.account || {};
-        const noTraffic = accountVisibilityFilters.querySelector('[data-account-toggle="no-traffic"]');
-        const banned = accountVisibilityFilters.querySelector('[data-account-toggle="banned"]');
-        if (noTraffic) noTraffic.checked = !!accountTs.hideNoTraffic;
-        if (banned) banned.checked = !!accountTs.hideBanned;
+    setFilterFieldVisible('reportVisibilityFilters', REPORT_VISIBILITY_VIEWS.has(state.view));
+    const reportVisibilityFilters = document.getElementById('reportVisibilityFilters');
+    if (reportVisibilityFilters) {
+        const noTraffic = reportVisibilityFilters.querySelector('[data-report-toggle="no-traffic"]');
+        const banned = reportVisibilityFilters.querySelector('[data-report-toggle="banned"]');
+        if (noTraffic) noTraffic.checked = !!state.reportVisibility.hideNoTraffic;
+        if (banned) banned.checked = !!state.reportVisibility.hideBanned;
     }
     setFilterFieldVisible('fltLaunchMode', allowed.has('launch_date'));
     const launchMode = document.getElementById('fltLaunchMode');
@@ -1724,12 +1744,17 @@ function setRulesVerdictFilter(kind, value) {
     renderCurrentTable();
 }
 
-function setAccountVisibilityFilter(key, checked) {
-    if (!state.tabs.account) return;
-    state.tabs.account[key] = !!checked;
+function setReportVisibilityFilter(key, checked) {
+    if (!state.reportVisibility) return;
+    state.reportVisibility[key] = !!checked;
     renderFilterTags();
     pushURL();
-    if (window._lastAccts) renderAccountsTable(window._lastAccts);
+    if (state.view === 'topcreo') loadTopCreoData();
+    else renderCurrentTable();
+}
+
+function setAccountVisibilityFilter(key, checked) {
+    setReportVisibilityFilter(key, checked);
 }
 
 function filterOptionsParams() {
@@ -2157,10 +2182,8 @@ function clearSearch() {
 
 function clearFilters() {
     clearFilter('all');
-    if (state.tabs.account) {
-        state.tabs.account.hideNoTraffic = false;
-        state.tabs.account.hideBanned = false;
-    }
+    state.reportVisibility.hideNoTraffic = false;
+    state.reportVisibility.hideBanned = false;
     setDeliveryFilter(null);
     clearSearch();
     reload();
@@ -3450,11 +3473,6 @@ function renderAccountsTable(accts) {
             ? data.filter(a => a.status === 1)
             : data.filter(a => a.status !== 1);
     }
-    if (!isBm) {
-        const accountTs = state.tabs.account || {};
-        if (accountTs.hideNoTraffic) data = data.filter(a => a.status !== 1 || accountHasTraffic(a));
-        if (accountTs.hideBanned) data = data.filter(a => a.status === 1);
-    }
 
     data.sort((a,b) => {
         const statFields = new Set(['spend','delta','impressions','clicks','leads','regs','deps','revenue','profit','roi','ctr','cpm','cpl','cpr','cpd','r2d','c2l']);
@@ -3727,6 +3745,7 @@ function renderTable() {
     if (ts.delivery) filtered = filtered.filter(x => ts.delivery === 'ACTIVE' ? isReallyActive(x) : realDeliveryStatus(x) === ts.delivery);
     filtered = filtered.filter(x => matchesParentDeliveryFilters(x, v));
     if (isRulesCheck) filtered = applyRulesVerdictFilters(filtered);
+    filtered = applyReportVisibilityFilters(filtered, v);
 
     filtered.sort((a,b) => {
         let va = ts.sortCol.startsWith('stats.') ? metricValue(a.stats, ts.sortCol.slice(6)) : (a[ts.sortCol]??0);
@@ -4654,6 +4673,7 @@ function renderCreoTable() {
     let r=[...creoRows];
     const q=(ts.search||'').toLowerCase();
     if (q) r=r.filter(x=>x.name.toLowerCase().includes(q));
+    r = applyReportVisibilityFilters(r, 'creo');
     r.sort((a,b)=>{const col=ts.sortCol;const va=col.startsWith('stats.')?metricValue(a.stats,col.slice(6)):col==='ads_active'?a.ads_active:col==='ads_total'?a.ads_total:col==='rank'?(a.rank??999999):(a[col]??'');const vb=col.startsWith('stats.')?metricValue(b.stats,col.slice(6)):col==='ads_active'?b.ads_active:col==='ads_total'?b.ads_total:col==='rank'?(b.rank??999999):(b[col]??'');const primary=typeof va==='string'?(ts.sortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va)):(ts.sortDir==='asc'?va-vb:vb-va);return compareWithActive(a,b,primary);});
     if (!r.length) { document.getElementById('creoTbl').innerHTML='<div class="tbl-empty">No data</div>'; return; }
     const T=r.reduce((a,x)=>({spend:a.spend+(x.stats.spend||0),delta:a.delta+(x.stats.delta||0),impressions:a.impressions+(x.stats.impressions||0),clicks:a.clicks+(x.stats.clicks||0),leads:a.leads+(x.stats.leads||0),regs:a.regs+(x.stats.regs||0),deps:a.deps+(x.stats.deps||0),revenue:a.revenue+(x.stats.revenue||0),ads_active:a.ads_active+x.ads_active,ads_total:a.ads_total+x.ads_total}),{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0,ads_active:0,ads_total:0});
@@ -4730,10 +4750,11 @@ async function loadTopCreoData() {
             g.rank_score = rec ? Number(rec.score || 0) : 0;
             return g;
         });
+        const visibleRows = applyReportVisibilityFilters(rows, 'topcreo');
 
         // Top ranked creatives for each geo using the canonical creative rank.
         const byGeo = {};
-        for (const r of rows) {
+        for (const r of visibleRows) {
             if (!byGeo[r.geo]) byGeo[r.geo] = [];
             byGeo[r.geo].push(r);
         }
@@ -6487,6 +6508,7 @@ function renderGeoTable() {
     let r=[...geoRows];
     const q=(ts.search||'').toLowerCase();
     if (q) r=r.filter(x=>x.geo.toLowerCase().includes(q));
+    r = applyReportVisibilityFilters(r, 'geo');
     r.sort((a,b)=>{const col=ts.sortCol;const va=col.startsWith('stats.')?metricValue(a.stats,col.slice(6)):col==='camps_active'?a.camps_active:col==='camps_total'?a.camps_total:col==='creatives_count'?a.creatives_count:col==='successful_creatives_count'?a.successful_creatives_count:(a[col]??'');const vb=col.startsWith('stats.')?metricValue(b.stats,col.slice(6)):col==='camps_active'?b.camps_active:col==='camps_total'?b.camps_total:col==='creatives_count'?b.creatives_count:col==='successful_creatives_count'?b.successful_creatives_count:(b[col]??'');const primary=typeof va==='string'?(ts.sortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va)):(ts.sortDir==='asc'?va-vb:vb-va);return compareWithActive(a,b,primary);});
     if (!r.length) { document.getElementById('geoTbl').innerHTML='<div class="tbl-empty">No data</div>'; return; }
     const T=r.reduce((a,x)=>({spend:a.spend+(x.stats.spend||0),delta:a.delta+(x.stats.delta||0),impressions:a.impressions+(x.stats.impressions||0),clicks:a.clicks+(x.stats.clicks||0),leads:a.leads+(x.stats.leads||0),regs:a.regs+(x.stats.regs||0),deps:a.deps+(x.stats.deps||0),revenue:a.revenue+(x.stats.revenue||0),creatives_count:a.creatives_count+(x.creatives_count||0),successful_creatives_count:a.successful_creatives_count+(x.successful_creatives_count||0),camps_active:a.camps_active+x.camps_active,camps_total:a.camps_total+x.camps_total}),{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0,creatives_count:0,successful_creatives_count:0,camps_active:0,camps_total:0});
