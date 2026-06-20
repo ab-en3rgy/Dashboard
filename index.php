@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.463
+// @version 1.4.464
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -806,7 +806,7 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <div class="filter-field"><label for="fltAdset">Ad Set</label><select class="filter-select" id="fltAdset" onchange="setReportFilter('adset_id',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field"><label for="fltCreo">Creo</label><select class="filter-select" id="fltCreo" onchange="setReportFilter('ad_name',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field" id="deliveryControl"><label for="fltDelivery">Status</label><select class="filter-select small" id="fltDelivery" onchange="setDeliveryFilter(this.value || null)"><option value="">All</option><option value="ACTIVE">Active</option><option value="PAUSED">Paused</option></select></div>
-    <div class="filter-field" id="reportVisibilityFilters" style="display:none">
+    <div class="filter-field" id="reportVisibilityFiltersTop" style="display:none">
       <label>Visibility</label>
       <div class="account-toggle-group">
         <label class="account-toggle" title="Hide rows with no traffic">
@@ -896,6 +896,23 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
 
 <!-- GEO VIEW -->
 <div id="geoWrap" style="display:none;flex:1;overflow:auto;background:var(--surface)">
+  <div class="ftabs report-controls" id="geoReportControls" style="padding-top:0;border-top:none;border-bottom:1px solid var(--line);margin-bottom:8px">
+    <div class="filter-selects" style="display:flex;flex-wrap:wrap;gap:8px">
+      <div class="filter-field" id="reportVisibilityFiltersGeo" style="display:none">
+        <label>Visibility</label>
+        <div class="account-toggle-group">
+          <label class="account-toggle" title="Hide rows with no traffic">
+            <input type="checkbox" data-report-toggle="no-traffic" onchange="setReportVisibilityFilter('hideNoTraffic', this.checked)">
+            <span>No traffic</span>
+          </label>
+          <label class="account-toggle" title="Hide banned rows">
+            <input type="checkbox" data-report-toggle="banned" onchange="setReportVisibilityFilter('hideBanned', this.checked)">
+            <span>Banned</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="geoTbl"></div>
 </div>
 
@@ -1601,6 +1618,17 @@ function setFilterFieldVisible(id, visible) {
     if (wrap) wrap.style.display = visible ? '' : 'none';
 }
 
+function syncReportVisibilityFilterCheckboxes() {
+    const noTraffic = !!state.reportVisibility.hideNoTraffic;
+    const banned = !!state.reportVisibility.hideBanned;
+    document.querySelectorAll('[data-report-toggle="no-traffic"]').forEach(el => {
+        el.checked = noTraffic;
+    });
+    document.querySelectorAll('[data-report-toggle="banned"]').forEach(el => {
+        el.checked = banned;
+    });
+}
+
 function viewUsesAccountFilter(view = state.view) {
     return currentReportFiltersFor(view).has('account_id');
 }
@@ -1708,14 +1736,9 @@ function renderReportFilterSelects() {
     setFilterFieldVisible('fltDelivery', allowed.has('delivery'));
     const delivery = document.getElementById('fltDelivery');
     if (delivery) delivery.value = curTab().delivery || '';
-    setFilterFieldVisible('reportVisibilityFilters', REPORT_VISIBILITY_VIEWS.has(state.view));
-    const reportVisibilityFilters = document.getElementById('reportVisibilityFilters');
-    if (reportVisibilityFilters) {
-        const noTraffic = reportVisibilityFilters.querySelector('[data-report-toggle="no-traffic"]');
-        const banned = reportVisibilityFilters.querySelector('[data-report-toggle="banned"]');
-        if (noTraffic) noTraffic.checked = !!state.reportVisibility.hideNoTraffic;
-        if (banned) banned.checked = !!state.reportVisibility.hideBanned;
-    }
+    setFilterFieldVisible('reportVisibilityFiltersTop', REPORT_VISIBILITY_VIEWS.has(state.view) && state.view !== 'geo');
+    setFilterFieldVisible('reportVisibilityFiltersGeo', state.view === 'geo');
+    syncReportVisibilityFilterCheckboxes();
     setFilterFieldVisible('fltLaunchMode', allowed.has('launch_date'));
     const launchMode = document.getElementById('fltLaunchMode');
     if (launchMode) {
@@ -1747,6 +1770,7 @@ function setRulesVerdictFilter(kind, value) {
 function setReportVisibilityFilter(key, checked) {
     if (!state.reportVisibility) return;
     state.reportVisibility[key] = !!checked;
+    syncReportVisibilityFilterCheckboxes();
     renderFilterTags();
     pushURL();
     if (state.view === 'topcreo') loadTopCreoData();
