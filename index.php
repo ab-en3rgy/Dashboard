@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.462
+// @version 1.4.463
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -1188,25 +1188,25 @@ function finalizeCostStats(s) {
 function reportRowStats(row) {
     return row?.stats || row?.period || row || {};
 }
-function reportRowHasTraffic(row) {
+function reportRowTodaySpend(row) {
     const s = reportRowStats(row);
-    return ['spend','impressions','clicks','leads','regs','deps','revenue'].some(key => Number(s[key] || 0) > 0);
+    return Number(s.today_spend ?? row?.today_spend ?? 0) || 0;
 }
 function reportRowIsBanned(row) {
-    if (typeof row?.status !== 'undefined' || typeof row?.effective_status !== 'undefined' || typeof row?.account_status !== 'undefined') {
-        return !isReallyActive(row);
+    if (typeof row?.account_status !== 'undefined' && row?.account_status !== null) {
+        return Number(row.account_status) !== 1;
     }
-    const activeCount = Number(row?.camps_active ?? row?.ads_active ?? 0);
-    const totalCount = Number(row?.camps_total ?? row?.ads_total ?? 0);
-    if (totalCount > 0) return activeCount <= 0;
+    if (typeof row?.has_banned_account === 'boolean') return !!row.has_banned_account;
     return false;
 }
 function applyReportVisibilityFilters(rows, view = state.view) {
     const vis = state.reportVisibility || {};
     if (!vis.hideNoTraffic && !vis.hideBanned) return rows;
     return rows.filter(row => {
-        if (vis.hideBanned && reportRowIsBanned(row, view)) return false;
-        if (vis.hideNoTraffic && !reportRowIsBanned(row, view) && !reportRowHasTraffic(row)) return false;
+        const isBanned = reportRowIsBanned(row, view);
+        const todaySpend = reportRowTodaySpend(row);
+        if (vis.hideBanned && isBanned && todaySpend <= 0) return false;
+        if (vis.hideNoTraffic && !isBanned && todaySpend <= 0) return false;
         return true;
     });
 }
@@ -4534,10 +4534,13 @@ function groupCreoAdsForRank(ads, opts={}) {
         if (currentReportFilters().has('ad_name') && state.filters.ad_name && name !== state.filters.ad_name) continue;
         const geo = extractGeo(ad.campaign_name || ad.name || '');
         const key = `${geo}||${name}`;
-        if (!byName[key]) byName[key] = {geo, name, ads_active:0, ads_total:0, stats:emptyCreoStats()};
+        if (!byName[key]) byName[key] = {geo, name, ads_active:0, ads_total:0, today_spend:0, has_active_account:false, has_banned_account:false, stats:emptyCreoStats()};
         const g = byName[key];
         g.ads_total++;
         if (isReallyActive(ad)) g.ads_active++;
+        g.today_spend += Number(ad?.stats?.today_spend || 0);
+        g.has_active_account = g.has_active_account || Number(ad?.account_status ?? 1) === 1;
+        g.has_banned_account = g.has_banned_account || Number(ad?.account_status ?? 1) !== 1;
         addCreoStats(g.stats, ad.stats || {});
     }
     return byName;
@@ -4726,9 +4729,12 @@ async function loadTopCreoData() {
             const geo  = extractGeo(ad.campaign_name || ad.name || '');
             const name = ad.name || '(no name)';
             const key  = geo + '||' + name;
-            if (!byGeoName[key]) byGeoName[key] = {geo, name, ads_active:0, ads_total:0, stats:{spend:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
+            if (!byGeoName[key]) byGeoName[key] = {geo, name, ads_active:0, ads_total:0, today_spend:0, has_active_account:false, has_banned_account:false, stats:{spend:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
             const g = byGeoName[key]; g.ads_total++;
             if (isReallyActive(ad)) g.ads_active++;
+            g.today_spend += Number(ad?.stats?.today_spend || 0);
+            g.has_active_account = g.has_active_account || Number(ad?.account_status ?? 1) === 1;
+            g.has_banned_account = g.has_banned_account || Number(ad?.account_status ?? 1) !== 1;
             const s = ad.stats||{};
             for (const k of ['spend','impressions','clicks','leads','regs','deps','revenue']) g.stats[k]+=(s[k]||0);
         }
@@ -6468,16 +6474,19 @@ async function loadGeoData() {
         for (const camp of campRows) {
             const geo=extractGeo(camp.name);
             const creoCount = creativeCounts[geo] || {total:0,successful:0};
-            if (!byGeo[geo]) byGeo[geo]={geo,creatives_count:creoCount.total,successful_creatives_count:creoCount.successful,camps_active:0,camps_total:0,cost_baseline:null,stats:{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
+            if (!byGeo[geo]) byGeo[geo]={geo,creatives_count:creoCount.total,successful_creatives_count:creoCount.successful,camps_active:0,camps_total:0,today_spend:0,has_active_account:false,has_banned_account:false,cost_baseline:null,stats:{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
             const g=byGeo[geo]; if (Number(camp.account_status ?? 1) === 1 && normalizedStatus(camp.status) !== 'DELETED') g.camps_total++;
             if (isReallyActive(camp)) g.camps_active++;
+            g.today_spend += Number(camp?.stats?.today_spend || 0);
+            g.has_active_account = g.has_active_account || Number(camp.account_status ?? 1) === 1;
+            g.has_banned_account = g.has_banned_account || Number(camp.account_status ?? 1) !== 1;
             if (!g.cost_baseline && camp.stats?.cost_baseline) g.cost_baseline = camp.stats.cost_baseline;
             const s=camp.stats||{}; for(const k of['spend','delta','impressions','clicks','leads','regs','deps','revenue'])g.stats[k]+=s[k]||0;
         }
         for (const [geo, cnt] of Object.entries(creativeCounts)) {
-            if (!byGeo[geo]) byGeo[geo]={geo,creatives_count:cnt.total,successful_creatives_count:cnt.successful,camps_active:0,camps_total:0,cost_baseline:null,stats:{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
+            if (!byGeo[geo]) byGeo[geo]={geo,creatives_count:cnt.total,successful_creatives_count:cnt.successful,camps_active:0,camps_total:0,today_spend:0,has_active_account:false,has_banned_account:false,cost_baseline:null,stats:{spend:0,delta:0,impressions:0,clicks:0,leads:0,regs:0,deps:0,revenue:0}};
         }
-        if (hasOrphan) byGeo['(unattributed)']={geo:'(unattributed)',creatives_count:0,successful_creatives_count:0,camps_active:0,camps_total:0,stats:{...orphan},_isOrphan:true};
+        if (hasOrphan) byGeo['(unattributed)']={geo:'(unattributed)',creatives_count:0,successful_creatives_count:0,camps_active:0,camps_total:0,today_spend:0,has_active_account:false,has_banned_account:false,stats:{...orphan},_isOrphan:true};
         geoRows=Object.values(byGeo).map(g=>{const s=g.stats;s.profit=s.revenue-s.spend;s.usd_per_campaign=g.camps_total>0?s.profit/g.camps_total:0;s.roi=s.spend>0?s.profit/s.spend*100:0;s.ctr=s.impressions>0?s.clicks/s.impressions*100:0;s.cpm=s.impressions>0?s.spend/s.impressions*1000:0;s.cpc=s.clicks>0?s.spend/s.clicks:0;s.cpl=s.leads>0?s.spend/s.leads:0;s.cpr=s.regs>0?s.spend/s.regs:0;s.cpd=s.deps>0?s.spend/s.deps:0;return g;});
         renderGeoTable();
     } catch(e) { document.getElementById('geoTbl').innerHTML=`<div class="tbl-empty">Error: ${esc(e.message)}</div>`; }

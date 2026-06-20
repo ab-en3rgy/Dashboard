@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.5
+// @version 1.0.7
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -168,6 +168,8 @@ function buildStats(PDO $db, string $aggCol, string $dateFrom, string $dateTo,
                     ?string $accId, array $campIds, array $adsetIds, ?string $accountScope,
                     bool $includeDeletedCampaigns = false): array
 {
+    global $now;
+    $today = $now instanceof DateTimeInterface ? $now->format('Y-m-d') : (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d');
     $extra = ''; $extraP = [];
     if ($accId)   { $extra .= ' AND a.ad_account_id = :acc_id';  $extraP[':acc_id'] = $accId; }
     elseif ($accountScope === 'active') { $extra .= ' AND aa.status = 1'; }
@@ -213,6 +215,7 @@ function buildStats(PDO $db, string $aggCol, string $dateFrom, string $dateTo,
         SELECT
             a.{$aggCol}::text AS entity_id,
             SUM(id.spend)            AS spend,
+            SUM(CASE WHEN id.date = :today THEN id.spend ELSE 0 END) AS today_spend,
             SUM(id.delta)            AS delta,
             SUM(id.impressions)      AS impressions,
             SUM(id.clicks)           AS clicks,
@@ -236,7 +239,7 @@ function buildStats(PDO $db, string $aggCol, string $dateFrom, string $dateTo,
     ";
 
     $stmt = $db->prepare($sql);
-    $stmt->execute(array_merge([':date_from'=>$dateFrom,':date_to'=>$dateTo], $bmParams, $extraP));
+    $stmt->execute(array_merge([':date_from'=>$dateFrom,':date_to'=>$dateTo,':today'=>$today], $bmParams, $extraP));
     $result = array_column($stmt->fetchAll(), null, 'entity_id');
 
     // Orphan rows: rows without structure, with sub_id
@@ -245,6 +248,7 @@ function buildStats(PDO $db, string $aggCol, string $dateFrom, string $dateTo,
             SELECT
                 id.{$orphanCol}::text AS entity_id,
                 SUM(id.spend)       AS spend,
+                SUM(CASE WHEN id.date = :today THEN id.spend ELSE 0 END) AS today_spend,
                 SUM(id.delta)       AS delta,
                 SUM(id.impressions) AS impressions,
                 SUM(id.clicks)      AS clicks,
@@ -265,12 +269,12 @@ function buildStats(PDO $db, string $aggCol, string $dateFrom, string $dateTo,
             GROUP BY id.{$orphanCol}
         ";
         $orphanStmt = $db->prepare($orphanSql);
-        $orphanStmt->execute(array_merge([':date_from'=>$dateFrom,':date_to'=>$dateTo], $orphanExtraP));
+        $orphanStmt->execute(array_merge([':date_from'=>$dateFrom,':date_to'=>$dateTo,':today'=>$today], $orphanExtraP));
         foreach ($orphanStmt->fetchAll() as $oRow) {
             $eid = $oRow['entity_id'];
             if (isset($result[$eid])) {
                 // Add to existing record
-                foreach (['spend','delta','impressions','clicks','leads','regs','deps','revenue'] as $k) {
+                foreach (['spend','today_spend','delta','impressions','clicks','leads','regs','deps','revenue'] as $k) {
                     $result[$eid][$k] = ($result[$eid][$k] ?? 0) + ($oRow[$k] ?? 0);
                 }
             } else {
@@ -532,6 +536,7 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
         'bid_strategy_mode' => array_key_exists('bid_strategy_mode', $r) ? $r['bid_strategy_mode'] : null,
         'stats'            => [
             'spend'       => $spend,
+            'today_spend' => (float)($s['today_spend'] ?? 0),
             'delta'       => (float)($s['delta'] ?? 0),
             'impressions' => $impr,
             'clicks'      => $clicks,
@@ -598,6 +603,7 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
 // Totals
 $totals = array_reduce($result, function(array $t, array $r): array {
     $t['spend']       += $r['stats']['spend'];
+    $t['today_spend'] += $r['stats']['today_spend'];
     $t['delta']       += $r['stats']['delta'];
     $t['impressions'] += $r['stats']['impressions'];
     $t['clicks']      += $r['stats']['clicks'];
@@ -606,7 +612,7 @@ $totals = array_reduce($result, function(array $t, array $r): array {
     $t['deps']        += $r['stats']['deps'];
     $t['revenue']     += $r['stats']['revenue'];
     return $t;
-}, ['spend'=>0,'delta'=>0,'impressions'=>0,'clicks'=>0,'leads'=>0,'regs'=>0,'deps'=>0,'revenue'=>0]);
+}, ['spend'=>0,'today_spend'=>0,'delta'=>0,'impressions'=>0,'clicks'=>0,'leads'=>0,'regs'=>0,'deps'=>0,'revenue'=>0]);
 
 $totals['profit'] = round($totals['revenue'] - $totals['spend'], 4);
 $totals['roi']    = $totals['spend'] > 0 ? round($totals['profit'] / $totals['spend'] * 100, 2) : 0;
