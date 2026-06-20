@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.458
+// @version 1.4.460
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -134,6 +134,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .filter-select:disabled{color:var(--text3);background:var(--bg);cursor:not-allowed}
 .filter-reset{height:30px;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:0 10px;font-size:12px;font-weight:800;color:var(--red);cursor:pointer}
 .filter-reset:hover{border-color:var(--red);background:var(--red-bg)}
+.account-toggle-group{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.account-toggle{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;user-select:none}
+.account-toggle:hover{border-color:var(--blue);background:var(--blue-bg);color:var(--blue)}
+.account-toggle input{margin:0}
 .width-reset-btn{height:30px;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:0 9px;font-size:11px;font-weight:700;color:var(--text3);cursor:pointer;opacity:.75}
 .width-reset-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-bg);opacity:1}
 .width-reset-btn.icon{width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center}
@@ -802,6 +806,19 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <div class="filter-field"><label for="fltAdset">Ad Set</label><select class="filter-select" id="fltAdset" onchange="setReportFilter('adset_id',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field"><label for="fltCreo">Creo</label><select class="filter-select" id="fltCreo" onchange="setReportFilter('ad_name',this.value,this.options[this.selectedIndex]?.text)"></select></div>
     <div class="filter-field" id="deliveryControl"><label for="fltDelivery">Status</label><select class="filter-select small" id="fltDelivery" onchange="setDeliveryFilter(this.value || null)"><option value="">All</option><option value="ACTIVE">Active</option><option value="PAUSED">Paused</option></select></div>
+    <div class="filter-field" id="accountVisibilityFilters" style="display:none">
+      <label>Account filters</label>
+      <div class="account-toggle-group">
+        <label class="account-toggle" title="Hide active accounts with no traffic">
+          <input type="checkbox" data-account-toggle="no-traffic" onchange="setAccountVisibilityFilter('hideNoTraffic', this.checked)">
+          <span>No traffic</span>
+        </label>
+        <label class="account-toggle" title="Hide banned accounts">
+          <input type="checkbox" data-account-toggle="banned" onchange="setAccountVisibilityFilter('hideBanned', this.checked)">
+          <span>Banned</span>
+        </label>
+      </div>
+    </div>
     <div class="filter-field"><label for="fltLaunchDate">Launch date</label><select class="filter-select" id="fltLaunchDate" onchange="setReportFilter('launch_date',this.value)"></select></div>
     <div class="filter-field"><label for="fltLaunchMode">Launch mode</label><select class="filter-select small" id="fltLaunchMode" onchange="setLaunchMode(this.value)"><option value="exact">Exact date</option><option value="after">All after</option><option value="before">All before</option></select></div>
     <div class="filter-field"><label for="fltV1Verdict">V1 verdict</label><select class="filter-select small" id="fltV1Verdict" onchange="setRulesVerdictFilter('v1',this.value)"></select></div>
@@ -1112,7 +1129,7 @@ const state = {
         tasks:    { search: '', status: '', sortCol: 'created_at', sortDir: 'desc' },
         bm_cards: { period: '14d' },
         bm:       { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
-        account:  { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
+        account:  { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc', hideNoTraffic: false, hideBanned: false },
         campaign: { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
         rules_check: { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
         adset:    { search: '', delivery: null, sortCol: 'stats.spend', sortDir: 'desc' },
@@ -1165,6 +1182,10 @@ function finalizeCostStats(s) {
     out.cpr = out.regs > 0 ? out.spend / out.regs : 0;
     out.cpd = out.deps > 0 ? out.spend / out.deps : 0;
     return out;
+}
+function accountHasTraffic(row) {
+    const p = row?.period || {};
+    return ['spend','impressions','clicks','leads','regs','deps','revenue'].some(key => Number(p[key] || 0) > 0);
 }
 function sumCostStats(items, getter = x => x?.stats) {
     const total = {spend:0, clicks:0, leads:0, regs:0, deps:0};
@@ -1390,6 +1411,8 @@ function pushURL(opts={}) {
         if (ts.delivery) p.set(tab+'_dlv', ts.delivery);
         if (ts.sortCol && ts.sortCol !== def.sortCol) p.set(tab+'_sort', ts.sortCol);
         if (ts.sortDir && ts.sortDir !== def.sortDir) p.set(tab+'_dir',  ts.sortDir);
+        if (ts.hideNoTraffic) p.set(tab+'_hide_no_traffic', '1');
+        if (ts.hideBanned) p.set(tab+'_hide_banned', '1');
         ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (ts[k] && ts[k] !== def[k]) p.set(tab+'_'+k, ts[k]);
         });
@@ -1431,6 +1454,8 @@ function readURL() {
         if ('delivery' in ts) ts.delivery = p.get(tab+'_dlv') || null;
         if ('sortCol' in ts) ts.sortCol = p.get(tab+'_sort') || ts.sortCol;
         if ('sortDir' in ts) ts.sortDir = p.get(tab+'_dir')  || ts.sortDir;
+        if ('hideNoTraffic' in ts) ts.hideNoTraffic = p.get(tab+'_hide_no_traffic') === '1';
+        if ('hideBanned' in ts) ts.hideBanned = p.get(tab+'_hide_banned') === '1';
         ['period','tab','geo','metrics','bm_id','sel','stream_id','campaign_id','offer_id','offer_geo','status'].forEach(k => {
             if (k in ts) ts[k] = p.get(tab+'_'+k) || ts[k];
         });
@@ -1505,6 +1530,10 @@ function clearAllReportFilters() {
     clearFilter('all');
     for (const view of Object.keys(state.tabs)) {
         if ('delivery' in state.tabs[view]) state.tabs[view].delivery = null;
+    }
+    if (state.tabs.account) {
+        state.tabs.account.hideNoTraffic = false;
+        state.tabs.account.hideBanned = false;
     }
     renderFilterTags();
     renderDeliveryBadges();
@@ -1585,6 +1614,7 @@ function ensureDefaultAccountFilter(view = state.view) {
 }
 
 function hasMeaningfulGlobalFilters() {
+    if (state.tabs.account?.hideNoTraffic || state.tabs.account?.hideBanned) return true;
     return Object.entries(state.filters).some(([key, value]) => {
         if (!value) return false;
         if (key === 'account_id') return value !== ACCOUNT_FILTER_ALL;
@@ -1657,6 +1687,15 @@ function renderReportFilterSelects() {
     setFilterFieldVisible('fltDelivery', allowed.has('delivery'));
     const delivery = document.getElementById('fltDelivery');
     if (delivery) delivery.value = curTab().delivery || '';
+    setFilterFieldVisible('accountVisibilityFilters', state.view === 'account');
+    const accountVisibilityFilters = document.getElementById('accountVisibilityFilters');
+    if (accountVisibilityFilters) {
+        const accountTs = state.tabs.account || {};
+        const noTraffic = accountVisibilityFilters.querySelector('[data-account-toggle="no-traffic"]');
+        const banned = accountVisibilityFilters.querySelector('[data-account-toggle="banned"]');
+        if (noTraffic) noTraffic.checked = !!accountTs.hideNoTraffic;
+        if (banned) banned.checked = !!accountTs.hideBanned;
+    }
     setFilterFieldVisible('fltLaunchMode', allowed.has('launch_date'));
     const launchMode = document.getElementById('fltLaunchMode');
     if (launchMode) {
@@ -1683,6 +1722,14 @@ function setRulesVerdictFilter(kind, value) {
     renderFilterTags();
     pushURL();
     renderCurrentTable();
+}
+
+function setAccountVisibilityFilter(key, checked) {
+    if (!state.tabs.account) return;
+    state.tabs.account[key] = !!checked;
+    renderFilterTags();
+    pushURL();
+    if (window._lastAccts) renderAccountsTable(window._lastAccts);
 }
 
 function filterOptionsParams() {
@@ -2110,6 +2157,10 @@ function clearSearch() {
 
 function clearFilters() {
     clearFilter('all');
+    if (state.tabs.account) {
+        state.tabs.account.hideNoTraffic = false;
+        state.tabs.account.hideBanned = false;
+    }
     setDeliveryFilter(null);
     clearSearch();
     reload();
@@ -3398,6 +3449,11 @@ function renderAccountsTable(accts) {
         data = ts.delivery === 'ACTIVE'
             ? data.filter(a => a.status === 1)
             : data.filter(a => a.status !== 1);
+    }
+    if (!isBm) {
+        const accountTs = state.tabs.account || {};
+        if (accountTs.hideNoTraffic) data = data.filter(a => a.status !== 1 || accountHasTraffic(a));
+        if (accountTs.hideBanned) data = data.filter(a => a.status === 1);
     }
 
     data.sort((a,b) => {
