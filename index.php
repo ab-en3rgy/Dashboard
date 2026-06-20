@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.464
+// @version 1.4.465
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -788,6 +788,19 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <button class="width-reset-btn icon" id="btnResetWidthsTop" onclick="resetTableColumnWidths()" title="Reset column widths" aria-label="Reset column widths" style="display:none">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18"/><path d="M3 16h10"/><path d="M13 4l4 4-4 4"/><path d="M11 12l4 4-4 4"/></svg>
     </button>
+    <div class="filter-field" id="reportVisibilityFiltersGeoTop" style="display:none;margin-right:6px">
+      <label>Visibility</label>
+      <div class="account-toggle-group">
+        <label class="account-toggle" title="Hide rows with no traffic">
+          <input type="checkbox" data-report-toggle="no-traffic" onchange="setReportVisibilityFilter('hideNoTraffic', this.checked)">
+          <span>No traffic</span>
+        </label>
+        <label class="account-toggle" title="Hide banned rows">
+          <input type="checkbox" data-report-toggle="banned" onchange="setReportVisibilityFilter('hideBanned', this.checked)">
+          <span>Banned</span>
+        </label>
+      </div>
+    </div>
     <label class="width-balance-toggle" id="btnBalanceWidthsWrap" title="Keep columns balanced while resizing" style="display:none">
       <input type="checkbox" id="btnBalanceWidthsTop" onchange="setTableColumnBalance(this.checked)">
       <span class="width-balance-track"><span class="width-balance-knob"></span></span>
@@ -896,23 +909,6 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
 
 <!-- GEO VIEW -->
 <div id="geoWrap" style="display:none;flex:1;overflow:auto;background:var(--surface)">
-  <div class="ftabs report-controls" id="geoReportControls" style="padding-top:0;border-top:none;border-bottom:1px solid var(--line);margin-bottom:8px">
-    <div class="filter-selects" style="display:flex;flex-wrap:wrap;gap:8px">
-      <div class="filter-field" id="reportVisibilityFiltersGeo" style="display:none">
-        <label>Visibility</label>
-        <div class="account-toggle-group">
-          <label class="account-toggle" title="Hide rows with no traffic">
-            <input type="checkbox" data-report-toggle="no-traffic" onchange="setReportVisibilityFilter('hideNoTraffic', this.checked)">
-            <span>No traffic</span>
-          </label>
-          <label class="account-toggle" title="Hide banned rows">
-            <input type="checkbox" data-report-toggle="banned" onchange="setReportVisibilityFilter('hideBanned', this.checked)">
-            <span>Banned</span>
-          </label>
-        </div>
-      </div>
-    </div>
-  </div>
   <div id="geoTbl"></div>
 </div>
 
@@ -1737,7 +1733,7 @@ function renderReportFilterSelects() {
     const delivery = document.getElementById('fltDelivery');
     if (delivery) delivery.value = curTab().delivery || '';
     setFilterFieldVisible('reportVisibilityFiltersTop', REPORT_VISIBILITY_VIEWS.has(state.view) && state.view !== 'geo');
-    setFilterFieldVisible('reportVisibilityFiltersGeo', state.view === 'geo');
+    setFilterFieldVisible('reportVisibilityFiltersGeoTop', state.view === 'geo');
     syncReportVisibilityFilterCheckboxes();
     setFilterFieldVisible('fltLaunchMode', allowed.has('launch_date'));
     const launchMode = document.getElementById('fltLaunchMode');
