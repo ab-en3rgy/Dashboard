@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.8
+// @version 1.0.9
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -49,6 +49,14 @@ try {
         $geo = strtoupper(trim((string)($_GET['geo'] ?? '')));
         if ($geo !== '' && !preg_match('/^[A-Z]{2}$/', $geo)) apiError(400, 'geo must be 2 letters');
         apiOk(fetchBuilder2Inventory($db, $me, $allowedBmIds, $bmInSql, $bmParams, $geo));
+    }
+
+    if ($method === 'GET' && $action === 'active_campaigns') {
+        $accountId = trim((string)($_GET['account_id'] ?? ''));
+        if ($accountId === '') apiError(400, 'account_id is required');
+        apiOk([
+            'campaigns' => fetchBuilder2ActiveCampaigns($db, $bmInSql, $bmParams, $accountId),
+        ]);
     }
 
     if ($method === 'POST' && $action === 'create') {
@@ -359,12 +367,7 @@ function fetchBuilder2ActiveCampaignCounts(PDO $db, string $bmInSql, array $para
         FROM public.campaigns c
         JOIN public.ad_accounts aa ON aa.id = c.ad_account_id
         WHERE aa.bm_id::text IN {$bmInSql}
-          AND COALESCE(c.status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
-          AND COALESCE(c.effective_status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
-          AND (
-              COALESCE(c.effective_status, '') = 'ACTIVE'
-              OR COALESCE(c.status, '') = 'ACTIVE'
-          )
+          AND " . builder2ActiveCampaignWhereSql() . "
         GROUP BY c.ad_account_id
     ");
     $stmt->execute($params);
@@ -386,12 +389,7 @@ function fetchBuilder2ActiveGeoCounts(PDO $db, string $bmInSql, array $params, s
         JOIN public.ad_accounts aa ON aa.id = c.ad_account_id
         WHERE aa.bm_id::text IN {$bmInSql}
           AND campaign_geo(c.name) ~ '^[A-Z]{2}$'
-          AND COALESCE(c.status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
-          AND COALESCE(c.effective_status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
-          AND (
-              COALESCE(c.effective_status, '') = 'ACTIVE'
-              OR COALESCE(c.status, '') = 'ACTIVE'
-          )
+          AND " . builder2ActiveCampaignWhereSql() . "
     ";
     if ($geo !== '') {
         $sql .= " AND campaign_geo(c.name) = :geo";
@@ -405,6 +403,34 @@ function fetchBuilder2ActiveGeoCounts(PDO $db, string $bmInSql, array $params, s
         $map[(string)$row['account_id']][(string)$row['geo']] = (int)$row['cnt'];
     }
     return $map;
+}
+
+function fetchBuilder2ActiveCampaigns(PDO $db, string $bmInSql, array $params, string $accountId): array
+{
+    $stmt = $db->prepare("
+        SELECT
+            c.id::text AS campaign_id,
+            c.name AS campaign_name,
+            COALESCE(c.status, '') AS status,
+            COALESCE(c.effective_status, '') AS effective_status,
+            COALESCE(c.updated_time::text, '') AS updated_time,
+            COALESCE(c.created_time::text, '') AS created_time
+        FROM public.campaigns c
+        JOIN public.ad_accounts aa ON aa.id = c.ad_account_id
+        WHERE aa.bm_id::text IN {$bmInSql}
+          AND aa.id::text = :account_id
+          AND " . builder2ActiveCampaignWhereSql() . "
+        ORDER BY c.updated_time DESC NULLS LAST, c.created_time DESC NULLS LAST, c.name ASC, c.id DESC
+    ");
+    $stmt->execute($params + [':account_id' => $accountId]);
+    return array_map(static fn(array $row): array => [
+        'campaign_id' => (string)$row['campaign_id'],
+        'name' => (string)$row['campaign_name'],
+        'status' => (string)$row['status'],
+        'effective_status' => (string)$row['effective_status'],
+        'updated_time' => (string)$row['updated_time'],
+        'created_time' => (string)$row['created_time'],
+    ], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 
 function fetchBuilder2PendingTasks(PDO $db, string $bmInSql, array $params, string $geo): array
@@ -776,6 +802,16 @@ function builder2BmInSql(array $bmIds): array
         $params[$key] = (string)$bmId;
     }
     return ['(' . implode(',', $ph) . ')', $params];
+}
+
+function builder2ActiveCampaignWhereSql(): string
+{
+    return "COALESCE(c.status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
+        AND COALESCE(c.effective_status, '') NOT IN ('MANUAL_STOP', 'ARCHIVED', 'DELETED')
+        AND (
+            COALESCE(c.effective_status, '') = 'ACTIVE'
+            OR COALESCE(c.status, '') = 'ACTIVE'
+        )";
 }
 
 function normalizeBuilder2StringList(mixed $value): array

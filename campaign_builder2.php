@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.8
+// @version 1.0.9
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -108,6 +108,26 @@ tr:hover td{background:var(--surface2)}
 .reason{color:var(--text2);font-size:12px;max-width:260px;line-height:1.3}
 .check-cell{width:38px;text-align:center}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
+.rc-cell{padding:8px 10px}
+.rc-toggle{display:inline-flex;align-items:center;gap:7px;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer}
+.rc-toggle:hover{text-decoration:underline}
+.rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
+.rc-count{display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-size:11.5px;font-weight:800;color:var(--text)}
+.rc-count.warn{background:var(--amber-bg);color:var(--amber);border-color:transparent}
+.rc-count.empty{background:var(--surface2);color:var(--text3)}
+.rc-detail-row td{padding:0;border-bottom:1px solid var(--border-light);background:var(--surface2)}
+.rc-detail{padding:10px 14px 12px 14px;border-left:3px solid var(--blue);margin-left:38px;display:flex;flex-direction:column;gap:8px}
+.rc-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.rc-detail-title{font-size:12px;font-weight:800;color:var(--text)}
+.rc-detail-note{font-size:11.5px;color:var(--text3)}
+.rc-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;padding-right:2px}
+.rc-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border-light);border-radius:var(--r2);background:var(--surface);min-width:0}
+.rc-name{font-weight:750;font-size:12.5px;line-height:1.3;word-break:break-word;min-width:0}
+.rc-meta{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.rc-pill{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface2);font-size:10.5px;font-weight:800;color:var(--text3);white-space:nowrap}
+.rc-pill.active{background:var(--green-bg);color:var(--green);border-color:transparent}
+.rc-pill.warn{background:var(--amber-bg);color:var(--amber);border-color:transparent}
+.rc-pill.empty{background:var(--surface2);color:var(--text3)}
 .side{position:sticky;top:76px;display:flex;flex-direction:column;gap:14px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .form-row{display:flex;flex-direction:column;gap:4px}
@@ -260,6 +280,9 @@ const state = {
   filters: { bms: [], geos: [] },
   selectedAccounts: new Set(),
   selectedCreatives: new Set(),
+  expandedCampaignAccounts: new Set(),
+  campaignRowsByAccount: {},
+  loadingCampaignAccounts: new Set(),
 };
 
 function esc(v) {
@@ -309,6 +332,9 @@ async function loadInventory() {
     state.creatives = data.creatives || [];
     state.defaults = data.defaults || {};
     state.filters = data.filters || { bms: [], geos: [] };
+    state.expandedCampaignAccounts = new Set();
+    state.campaignRowsByAccount = {};
+    state.loadingCampaignAccounts = new Set();
     fillGeoOptions();
     fillDefaults();
     renderSummary(data.summary || {});
@@ -471,15 +497,67 @@ function rowHtml(row) {
   const disabled = row.ready ? '' : 'disabled';
   const cls = row.status_key === 'ready' ? 'ready' : (row.status_key === 'warn' ? 'warn' : (row.status_key === 'idle' ? 'idle' : 'blocked'));
   const reason = row.block_reason || (Array.isArray(row.warnings) && row.warnings.length ? row.warnings.join(' ') : 'Ready to queue.');
+  const accountId = String(row.account_id || '');
+  const activeCount = Number(row.active_campaigns_count || 0);
   return `
     <tr>
       <td class="check-cell"><input type="checkbox" value="${esc(row.account_id)}" ${checked} ${disabled} onchange="toggleAccount('${esc(row.account_id)}', this.checked)"></td>
       <td><span class="badge ${cls}">${esc(row.status_label)}</span></td>
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
-      <td>${Number(row.active_campaigns_count || 0) ? '<span class="badge warn">' + num(row.active_campaigns_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
+      <td class="rc-cell">${
+        activeCount > 0
+          ? `<button class="rc-toggle" type="button" data-account="${esc(accountId)}" aria-expanded="${state.expandedCampaignAccounts.has(accountId) ? 'true' : 'false'}" onclick="toggleActiveCampaigns('${esc(accountId)}')"><span class="rc-count warn">${num(activeCount)}</span><span>View</span></button>`
+          : `<span class="rc-count empty">${num(activeCount)}</span>`
+      }</td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge warn">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td><div class="reason">${esc(reason)}</div></td>
     </tr>
+    ${renderCampaignRows(row)}
+  `;
+}
+function renderCampaignRows(row) {
+  const accountId = String(row.account_id || '');
+  if (!state.expandedCampaignAccounts.has(accountId)) return '';
+  const loaded = Object.prototype.hasOwnProperty.call(state.campaignRowsByAccount, accountId);
+  const loading = state.loadingCampaignAccounts.has(accountId);
+  const campaigns = loaded ? (state.campaignRowsByAccount[accountId] || []) : [];
+  const count = Number(row.active_campaigns_count || 0);
+  const body = loading
+    ? '<div class="rc-detail-note">Loading active campaigns...</div>'
+    : (!loaded
+      ? '<div class="rc-detail-note">Loading active campaigns...</div>'
+      : (campaigns.length
+        ? `<div class="rc-list">${campaigns.map(campaignHtml).join('')}</div>`
+        : '<div class="rc-detail-note">No active campaigns</div>'));
+  return `
+    <tr class="rc-detail-row">
+      <td colspan="6">
+        <div class="rc-detail">
+          <div class="rc-detail-head">
+            <div class="rc-detail-title">Active campaigns for ${esc(row.account_name || row.account_id)}</div>
+            <div class="rc-detail-note">${loading ? 'Loading...' : `${num(count)} active campaign${count === 1 ? '' : 's'}`}</div>
+          </div>
+          ${body}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+function campaignHtml(campaign) {
+  const status = String(campaign.status || '').trim();
+  const effective = String(campaign.effective_status || '').trim();
+  const statusLabel = effective || status || 'ACTIVE';
+  const chips = [];
+  if (status) chips.push(`<span class="rc-pill ${status.toUpperCase() === 'ACTIVE' ? 'active' : ''}">status: ${esc(status)}</span>`);
+  if (effective && effective !== status) chips.push(`<span class="rc-pill ${effective.toUpperCase() === 'ACTIVE' ? 'active' : 'warn'}">effective: ${esc(effective)}</span>`);
+  return `
+    <div class="rc-item">
+      <div class="rc-name">${esc(campaign.name || campaign.campaign_name || 'Campaign')}</div>
+      <div class="rc-meta">
+        <span class="rc-pill active">${esc(statusLabel)}</span>
+        ${chips.join('')}
+      </div>
+    </div>
   `;
 }
 function rowLaunchState(row) {
@@ -508,6 +586,40 @@ function rowLaunchState(row) {
 function toggleAccount(id, checked) {
   if (checked) state.selectedAccounts.add(String(id)); else state.selectedAccounts.delete(String(id));
   updateSelectionUi();
+}
+async function toggleActiveCampaigns(accountId) {
+  const id = String(accountId || '');
+  if (!id) return;
+  if (state.expandedCampaignAccounts.has(id)) {
+    state.expandedCampaignAccounts.delete(id);
+    renderRows();
+    return;
+  }
+  state.expandedCampaignAccounts.add(id);
+  renderRows();
+  if (Object.prototype.hasOwnProperty.call(state.campaignRowsByAccount, id) || state.loadingCampaignAccounts.has(id)) return;
+  state.loadingCampaignAccounts.add(id);
+  renderRows();
+  try {
+    const params = new URLSearchParams({ action: 'active_campaigns', account_id: id });
+    if (state.geo) params.set('geo', state.geo);
+    const res = await fetch(API + '?' + params.toString());
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (parseErr) {
+      throw new Error((text || '').trim().slice(0, 240) || 'Empty API response');
+    }
+    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Campaign list API error');
+    state.campaignRowsByAccount[id] = Array.isArray(json.data?.campaigns) ? json.data.campaigns : [];
+  } catch (err) {
+    state.campaignRowsByAccount[id] = [];
+    showToast(err.message, false);
+  } finally {
+    state.loadingCampaignAccounts.delete(id);
+    renderRows();
+  }
 }
 function toggleVisible(checked) {
   for (const row of filteredRows()) {
