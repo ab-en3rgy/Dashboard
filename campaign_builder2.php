@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.5
+// @version 1.0.6
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -405,6 +405,7 @@ function groupRowsByBm(rows) {
         ready: 0,
         blocked: 0,
         warn: 0,
+        bmActive: true,
         active_geo: 0,
       });
     }
@@ -414,6 +415,7 @@ function groupRowsByBm(rows) {
     if (row.ready) group.ready++;
     if (row.status_key === 'blocked') group.blocked++;
     if (row.status_key === 'warn') group.warn++;
+    if (row.bm_is_active === false) group.bmActive = false;
     if (Number(row.active_geo_count || 0)) group.active_geo++;
   }
   return Array.from(map.values()).sort((a, b) => {
@@ -441,6 +443,7 @@ function groupHtml(group) {
           </div>
         </div>
         <div class="bm-stats">
+          <span class="bm-chip ${group.bmActive ? 'ready' : 'bad'}"><strong>${group.bmActive ? 'ON' : 'OFF'}</strong> BM ${group.bmActive ? 'active' : 'restricted'}</span>
           <span class="bm-chip ready"><strong>${num(group.ready)}</strong> ready</span>
           <span class="bm-chip bad"><strong>${num(group.blocked)}</strong> blocked</span>
           <span class="bm-chip warn"><strong>${num(group.warn)}</strong> has GEO</span>

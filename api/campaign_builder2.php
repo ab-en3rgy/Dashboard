@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.6
+// @version 1.0.7
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -73,6 +73,8 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
             'account_status' => (int)$account['account_status'],
             'bm_id' => (string)$account['bm_id'],
             'bm_name' => (string)$account['bm_name'],
+            'bm_is_active' => (bool)$account['bm_is_active'],
+            'bm_block_reason' => (string)$account['bm_block_reason'],
             'eligible_account' => (bool)$account['eligible_account'],
             'account_block_reason' => (string)$account['account_block_reason'],
             'active_campaigns_count' => $activeCampaignCount,
@@ -109,11 +111,17 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
 function builder2Readiness(array $account, string $geo, int $activeForGeo, int $pendingForGeo): array
 {
     $warnings = [];
+    if (!$account['eligible_account']) {
+        return [
+            'ready' => false,
+            'status_key' => 'blocked',
+            'status_label' => 'BM restricted',
+            'block_reason' => (string)($account['bm_block_reason'] ?: $account['account_block_reason']),
+            'warnings' => [],
+        ];
+    }
     if ($geo === '') {
         return ['ready' => false, 'status_key' => 'idle', 'status_label' => 'Choose GEO', 'block_reason' => 'Choose a GEO to calculate launch readiness.', 'warnings' => []];
-    }
-    if (!$account['eligible_account']) {
-        return ['ready' => false, 'status_key' => 'blocked', 'status_label' => 'Blocked', 'block_reason' => (string)$account['account_block_reason'], 'warnings' => []];
     }
     if ($activeForGeo > 0) {
         $warnings[] = 'Account already has an active campaign on this GEO.';
@@ -206,6 +214,7 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
             aa.status AS account_status,
             bm.id::text AS bm_id,
             bm.name AS bm_name,
+            bm.is_active AS bm_is_active,
             CASE
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
                 ELSE 1
@@ -227,6 +236,8 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
         'account_status' => (int)$row['account_status'],
         'bm_id' => (string)$row['bm_id'],
         'bm_name' => (string)$row['bm_name'],
+        'bm_is_active' => (bool)$row['bm_is_active'],
+        'bm_block_reason' => (string)$row['account_block_reason'],
         'eligible_account' => (bool)$row['eligible_account'],
         'account_block_reason' => (string)$row['account_block_reason'],
     ], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
