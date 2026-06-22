@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.4
+// @version 1.0.5
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -77,6 +77,26 @@ table{width:100%;border-collapse:collapse;min-width:1020px}
 thead th{position:sticky;top:0;z-index:1;background:var(--surface2);padding:9px 10px;text-align:left;font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.35px;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:10px;border-bottom:1px solid var(--border-light);vertical-align:middle;font-size:13px}
 tr:hover td{background:var(--surface2)}
+.bm-groups{display:flex;flex-direction:column;gap:12px}
+.bm-group{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.bm-group[open]{background:var(--surface)}
+.bm-group>summary{list-style:none}
+.bm-group>summary::-webkit-details-marker{display:none}
+.bm-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.bm-head{cursor:pointer}
+.bm-head-left{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.bm-toggle{width:18px;height:18px;margin-top:2px;accent-color:var(--blue)}
+.bm-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bm-title strong{font-size:14px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bm-title span{font-size:11.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bm-stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.bm-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-size:11px;font-weight:800;color:var(--text2);white-space:nowrap}
+.bm-chip strong{color:var(--text);font-size:11px}
+.bm-chip.ready strong{color:var(--green)}
+.bm-chip.warn strong{color:var(--amber)}
+.bm-chip.bad strong{color:var(--red)}
+.bm-table{width:100%;border-collapse:collapse;min-width:1020px}
+.bm-table thead th{position:static}
 .cell-title{font-weight:750;color:var(--text);line-height:1.2;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cell-sub{font-size:11.5px;color:var(--text3);margin-top:2px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:800;white-space:nowrap}
@@ -136,7 +156,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue)}
     <div class="left">
       <section class="panel">
         <div class="panel-h">
-          <h2>Launch Inventory</h2>
+          <h2>BM Inventory</h2>
           <span class="subtle" id="rowCount">0 accounts</span>
         </div>
         <div class="table-wrap" id="rowsWrap">
@@ -325,6 +345,7 @@ function fillDefaults() {
   document.getElementById('pixelId').value = d.pixel_id || '';
 }
 function renderSummary(s) {
+  const bmCount = new Set((state.rows || []).map(row => String(row.bm_id || ''))).size;
   const cards = [
     ['Ready accounts', s.ready_accounts, 'ready'],
     ['Blocked accounts', s.blocked_accounts, 'bad'],
@@ -332,6 +353,7 @@ function renderSummary(s) {
     ['Pending tasks', s.pending_tasks, 'bad'],
     ['Creatives', s.creatives_total, ''],
     ['Ranked creatives', s.creatives_ranked, 'ready'],
+    ['Business managers', bmCount, ''],
     ['All accounts', s.accounts_total, ''],
   ];
   document.getElementById('summary').innerHTML = cards.map(([label, value, cls]) => `
@@ -361,18 +383,81 @@ function renderRows() {
     updateSelectionUi();
     return;
   }
+  const groups = groupRowsByBm(rows);
   document.getElementById('rowsWrap').innerHTML = `
-    <table>
-      <thead><tr>
-        <th class="check-cell"><input type="checkbox" onchange="toggleVisible(this.checked)"></th>
-        <th>Status</th><th>BM</th><th>Account</th><th>Active RC</th><th>Active GEO</th><th>Reason</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(rowHtml).join('')}
-      </tbody>
-    </table>
+    <div class="bm-groups">
+      ${groups.map(groupHtml).join('')}
+    </div>
   `;
+  syncGroupCheckboxStates();
   updateSelectionUi();
+}
+function groupRowsByBm(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = String(row.bm_id || '');
+    if (!map.has(key)) {
+      map.set(key, {
+        bm_id: key,
+        bm_name: String(row.bm_name || row.bm_id || 'BM'),
+        rows: [],
+        total: 0,
+        ready: 0,
+        blocked: 0,
+        warn: 0,
+        active_geo: 0,
+      });
+    }
+    const group = map.get(key);
+    group.rows.push(row);
+    group.total++;
+    if (row.ready) group.ready++;
+    if (row.status_key === 'blocked') group.blocked++;
+    if (row.status_key === 'warn') group.warn++;
+    if (Number(row.active_geo_count || 0)) group.active_geo++;
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const aName = String(a.bm_name || '').toLowerCase();
+    const bName = String(b.bm_name || '').toLowerCase();
+    if (aName !== bName) return aName.localeCompare(bName);
+    return String(a.bm_id || '').localeCompare(String(b.bm_id || ''));
+  });
+}
+function groupHtml(group) {
+  const readySelected = group.rows.filter(row => row.ready && state.selectedAccounts.has(String(row.account_id))).length;
+  const readyTotal = group.ready;
+  const allSelected = readyTotal > 0 && readySelected === readyTotal;
+  const someSelected = readySelected > 0 && readySelected < readyTotal;
+  const checked = allSelected ? 'checked' : '';
+  const indeterminate = someSelected ? 'data-indeterminate="1"' : '';
+  return `
+    <details class="bm-group" open>
+      <summary class="bm-head">
+        <div class="bm-head-left">
+          <input class="bm-toggle" type="checkbox" ${checked} ${indeterminate} onclick="event.stopPropagation()" onchange="toggleBmGroup('${esc(group.bm_id)}', this.checked)">
+          <div class="bm-title">
+            <strong>${esc(group.bm_name)}</strong>
+            <span>${esc(group.bm_id)} · ${num(group.total)} account${group.total === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <div class="bm-stats">
+          <span class="bm-chip ready"><strong>${num(group.ready)}</strong> ready</span>
+          <span class="bm-chip bad"><strong>${num(group.blocked)}</strong> blocked</span>
+          <span class="bm-chip warn"><strong>${num(group.warn)}</strong> has GEO</span>
+          <span class="bm-chip"><strong>${num(group.active_geo)}</strong> active GEO rows</span>
+        </div>
+      </summary>
+      <table class="bm-table">
+        <thead><tr>
+          <th class="check-cell"><input type="checkbox" onchange="toggleVisibleGroup('${esc(group.bm_id)}', this.checked)"></th>
+          <th>Status</th><th>Account</th><th>Active RC</th><th>Active GEO</th><th>Reason</th>
+        </tr></thead>
+        <tbody>
+          ${group.rows.map(rowHtml).join('')}
+        </tbody>
+      </table>
+    </details>
+  `;
 }
 function rowHtml(row) {
   const checked = state.selectedAccounts.has(String(row.account_id)) ? 'checked' : '';
@@ -383,7 +468,6 @@ function rowHtml(row) {
     <tr>
       <td class="check-cell"><input type="checkbox" value="${esc(row.account_id)}" ${checked} ${disabled} onchange="toggleAccount('${esc(row.account_id)}', this.checked)"></td>
       <td><span class="badge ${cls}">${esc(row.status_label)}</span></td>
-      <td><div class="cell-title">${esc(row.bm_name || row.bm_id)}</div><div class="cell-sub mono">${esc(row.bm_id)}</div></td>
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
       <td>${Number(row.active_campaigns_count || 0) ? '<span class="badge warn">' + num(row.active_campaigns_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge warn">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
@@ -402,6 +486,24 @@ function toggleVisible(checked) {
     else state.selectedAccounts.delete(String(row.account_id));
   }
   renderRows();
+}
+function toggleVisibleGroup(bmId, checked) {
+  const id = String(bmId || '');
+  for (const row of filteredRows()) {
+    if (!row.ready) continue;
+    if (String(row.bm_id || '') !== id) continue;
+    if (checked) state.selectedAccounts.add(String(row.account_id));
+    else state.selectedAccounts.delete(String(row.account_id));
+  }
+  renderRows();
+}
+function toggleBmGroup(bmId, checked) {
+  toggleVisibleGroup(bmId, checked);
+}
+function syncGroupCheckboxStates() {
+  document.querySelectorAll('.bm-head input[type="checkbox"][data-indeterminate="1"]').forEach(el => {
+    el.indeterminate = true;
+  });
 }
 function selectReady(checked) {
   for (const row of state.rows) {
