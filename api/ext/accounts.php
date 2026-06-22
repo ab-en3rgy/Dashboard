@@ -1,6 +1,6 @@
 <?php
 // api/ext/accounts.php
-// @version 1.0.1
+// @version 1.0.2
 // POST { secret, token_hint, bm_id, bm_name, accounts: [...] }
 // bm_id - numeric Business Manager ID from FB
 // Creates the BM if it does not exist, then upserts accounts
@@ -70,7 +70,7 @@ $db->prepare("
     'id' => $bmId,
     'name' => $bmName,
     'fbtool_account_id' => $fbtoolAccountId,
-    'launch_restricted' => $bodyLaunch['launch_restricted'],
+    'launch_restricted' => boolToSqlBool($bodyLaunch['launch_restricted']),
     'launch_status' => $bodyLaunch['launch_status'],
     'launch_block_reason' => $bodyLaunch['launch_block_reason'],
     'launch_checked_at' => $bodyLaunch['launch_checked_at'],
@@ -131,7 +131,7 @@ foreach ($accounts as $acc) {
         'cap'    => isset($acc['spend_cap'])    ? (float)$acc['spend_cap']    : null,
         'spent'  => (float)($acc['amount_spent'] ?? 0),
         'bal'    => (float)($acc['balance']      ?? 0),
-        'launch_restricted' => $accLaunch['launch_restricted'],
+        'launch_restricted' => boolToSqlBool($accLaunch['launch_restricted']),
         'launch_status' => $accLaunch['launch_status'],
         'launch_block_reason' => $accLaunch['launch_block_reason'],
         'launch_checked_at' => $accLaunch['launch_checked_at'],
@@ -211,4 +211,9 @@ function normalizeLaunchRaw(mixed $raw): ?string
         return json_encode($trimmed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
     return json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+function boolToSqlBool(bool $value): string
+{
+    return $value ? 'TRUE' : 'FALSE';
 }
