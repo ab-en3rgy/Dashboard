@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.9
+// @version 1.0.10
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -506,7 +506,7 @@ function rowHtml(row) {
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
       <td class="rc-cell">${
         activeCount > 0
-          ? `<button class="rc-toggle" type="button" data-account="${esc(accountId)}" aria-expanded="${state.expandedCampaignAccounts.has(accountId) ? 'true' : 'false'}" onclick="toggleActiveCampaigns('${esc(accountId)}')"><span class="rc-count warn">${num(activeCount)}</span><span>View</span></button>`
+          ? `<button class="rc-toggle" type="button" data-account="${esc(accountId)}" aria-label="View active campaigns" aria-expanded="${state.expandedCampaignAccounts.has(accountId) ? 'true' : 'false'}" onclick="toggleActiveCampaigns('${esc(accountId)}')"><span class="rc-count warn">${num(activeCount)}</span></button>`
           : `<span class="rc-count empty">${num(activeCount)}</span>`
       }</td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge warn">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
