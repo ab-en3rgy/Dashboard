@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.466
+// @version 1.4.467
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -425,8 +425,20 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .bm-geo-cell.good{background:var(--green-bg);color:var(--green)}
 .bm-geo-cell.bad{background:var(--red-bg);color:var(--red)}
 .bm-geo-deps{text-align:right;color:var(--text3);font-weight:700}
-.topcreo-geo-header{padding:10px 16px 6px;font-size:13px;font-weight:700;color:var(--text1);background:var(--bg);border-bottom:1px solid var(--border);letter-spacing:.5px}
-.topcreo-geo-header span{display:inline-block;background:var(--blue);color:#fff;border-radius:4px;padding:1px 8px;font-size:12px;margin-right:6px}
+.topcreo-geo-header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 14px;margin-top:10px;background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%);border-top:1px solid #cfe1fb;border-bottom:1px solid #cfe1fb;color:var(--text);font-weight:800}
+.topcreo-geo-header:first-child{margin-top:0}
+.topcreo-geo-main{display:flex;align-items:center;gap:10px;min-width:0}
+.topcreo-geo-code{display:inline-flex;align-items:center;justify-content:center;min-width:52px;height:28px;padding:0 12px;border-radius:6px;background:var(--blue);color:#fff;font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.topcreo-geo-title{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topcreo-geo-profit{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:12px;color:var(--text2);white-space:nowrap}
+.topcreo-geo-profit strong{font-size:13px}
+[data-theme="dark"] .topcreo-geo-header{background:linear-gradient(180deg,#172033 0%,#111827 100%);border-top-color:#2b3a55;border-bottom-color:#2b3a55}
+[data-theme="dark"] .topcreo-geo-code{background:#3b82f6;color:#fff}
+[data-theme="dark"] .topcreo-geo-profit{background:#0f172a;border-color:#334155;color:var(--text2)}
+@media(max-width:680px){
+  .topcreo-geo-header{align-items:flex-start;flex-direction:column;gap:8px}
+  .topcreo-geo-title{white-space:normal}
+}
 .creative-calendar-toolbar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
 .creative-calendar-toolbar label{font-size:12px;font-weight:800;color:var(--text3);text-transform:uppercase}
 .creative-calendar-select{height:34px;min-width:150px;border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:0 10px;font-weight:700;color:var(--text)}
@@ -4844,7 +4856,13 @@ function renderTopCreoTable(byGeo, geosSorted) {
         const geoProfit = rows.reduce((s,r)=>s+r.stats.profit,0);
         const pC = geoProfit>0?'color:var(--green)':geoProfit<0?'color:var(--red)':'';
 
-        html += `<div class="topcreo-geo-header"><span>${esc(geo)}</span>Top ${rows.length} by Rank  |  Profit: <b style="${pC}">${f$(geoProfit)}</b></div>`;
+        html += `<div class="topcreo-geo-header">
+            <div class="topcreo-geo-main">
+                <span class="topcreo-geo-code">${esc(geo)}</span>
+                <span class="topcreo-geo-title">Top ${rows.length} by Rank</span>
+            </div>
+            <div class="topcreo-geo-profit">Profit <strong style="${pC}">${f$(geoProfit)}</strong></div>
+        </div>`;
         html += `<table>${hdr}<tbody>`;
 
         for (const row of rows) {
