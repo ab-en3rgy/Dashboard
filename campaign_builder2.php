@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.7
+// @version 1.0.8
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -143,7 +143,6 @@ input:focus,select:focus,textarea:focus{border-color:var(--blue)}
       <option value="">All statuses</option>
       <option value="ready">Ready only</option>
       <option value="warn">Ready with warnings</option>
-      <option value="blocked">Blocked</option>
     </select>
     <input class="flt" id="searchInput" type="search" placeholder="Search account or BM" oninput="renderRows()">
     <button class="btn" type="button" onclick="loadInventory()">Refresh</button>
@@ -367,9 +366,9 @@ function filteredRows() {
   const status = document.getElementById('statusFilter').value;
   const q = document.getElementById('searchInput').value.trim().toLowerCase();
   return state.rows.filter(row => {
+    if (row.status_key === 'blocked') return false;
     if (status === 'ready' && !row.ready) return false;
     if (status === 'warn' && row.status_key !== 'warn') return false;
-    if (status === 'blocked' && row.status_key !== 'blocked') return false;
     if (!q) return true;
     const hay = [row.account_name,row.account_id,row.bm_name,row.bm_id,row.block_reason].join(' ').toLowerCase();
     return hay.includes(q);
