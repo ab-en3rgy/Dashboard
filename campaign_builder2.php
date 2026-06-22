@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.11
+// @version 1.0.12
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -112,7 +112,7 @@ tr:hover td{background:var(--surface2)}
 .rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
-.rc-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:22px;padding:2px 6px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-size:11px;font-weight:800;color:var(--text);line-height:1}
+.rc-count{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:0;padding:3px 8px;border-radius:5px;border:1px solid var(--border-light);background:var(--surface);font-size:11.5px;font-weight:800;color:var(--text);line-height:1}
 .rc-count.warn{background:var(--amber-bg);color:var(--amber);border-color:transparent}
 .rc-count.empty{background:var(--surface2);color:var(--text3)}
 .rc-detail-row td{padding:0;border-bottom:1px solid var(--border-light);background:var(--surface2)}
