@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.10
+// @version 1.0.11
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -108,18 +108,18 @@ tr:hover td{background:var(--surface2)}
 .reason{color:var(--text2);font-size:12px;max-width:260px;line-height:1.3}
 .check-cell{width:38px;text-align:center}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
-.rc-cell{padding:8px 10px}
-.rc-toggle{display:inline-flex;align-items:center;gap:7px;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer}
+.rc-cell{padding:6px 10px;vertical-align:middle}
+.rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
-.rc-count{display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-size:11.5px;font-weight:800;color:var(--text)}
+.rc-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:22px;padding:2px 6px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-size:11px;font-weight:800;color:var(--text);line-height:1}
 .rc-count.warn{background:var(--amber-bg);color:var(--amber);border-color:transparent}
 .rc-count.empty{background:var(--surface2);color:var(--text3)}
 .rc-detail-row td{padding:0;border-bottom:1px solid var(--border-light);background:var(--surface2)}
-.rc-detail{padding:10px 14px 12px 14px;border-left:3px solid var(--blue);margin-left:38px;display:flex;flex-direction:column;gap:8px}
+.rc-detail{padding:8px 12px 10px 12px;border-left:3px solid var(--blue);margin-left:38px;display:flex;flex-direction:column;gap:8px}
 .rc-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.rc-detail-title{font-size:12px;font-weight:800;color:var(--text)}
-.rc-detail-note{font-size:11.5px;color:var(--text3)}
+.rc-detail-title{font-size:11.5px;font-weight:800;color:var(--text)}
+.rc-detail-note{font-size:11px;color:var(--text3)}
 .rc-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;padding-right:2px}
 .rc-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border-light);border-radius:var(--r2);background:var(--surface);min-width:0}
 .rc-name{font-weight:750;font-size:12.5px;line-height:1.3;word-break:break-word;min-width:0}
@@ -534,8 +534,8 @@ function renderCampaignRows(row) {
       <td colspan="6">
         <div class="rc-detail">
           <div class="rc-detail-head">
-            <div class="rc-detail-title">Active campaigns for ${esc(row.account_name || row.account_id)}</div>
-            <div class="rc-detail-note">${loading ? 'Loading...' : `${num(count)} active campaign${count === 1 ? '' : 's'}`}</div>
+            <div class="rc-detail-title">${esc(row.account_name || row.account_id)}</div>
+            ${loading ? '<div class="rc-detail-note">Loading...</div>' : ''}
           </div>
           ${body}
         </div>
