@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.6
+// @version 1.0.7
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -406,6 +406,7 @@ function groupRowsByBm(rows) {
         blocked: 0,
         warn: 0,
         bmActive: true,
+        launchState: 'ready',
         active_geo: 0,
       });
     }
@@ -416,6 +417,9 @@ function groupRowsByBm(rows) {
     if (row.status_key === 'blocked') group.blocked++;
     if (row.status_key === 'warn') group.warn++;
     if (row.bm_is_active === false) group.bmActive = false;
+    const launchState = rowLaunchState(row);
+    if (launchState.key === 'blocked') group.launchState = 'blocked';
+    else if (launchState.key === 'warn' && group.launchState !== 'blocked') group.launchState = 'warn';
     if (Number(row.active_geo_count || 0)) group.active_geo++;
   }
   return Array.from(map.values()).sort((a, b) => {
@@ -439,11 +443,12 @@ function groupHtml(group) {
           <input class="bm-toggle" type="checkbox" ${checked} ${indeterminate} onclick="event.stopPropagation()" onchange="toggleBmGroup('${esc(group.bm_id)}', this.checked)">
           <div class="bm-title">
             <strong>${esc(group.bm_name)}</strong>
-            <span>${esc(group.bm_id)} · ${num(group.total)} account${group.total === 1 ? '' : 's'}</span>
+            <span>${esc(group.bm_id)} | ${num(group.total)} account${group.total === 1 ? '' : 's'}</span>
           </div>
         </div>
         <div class="bm-stats">
           <span class="bm-chip ${group.bmActive ? 'ready' : 'bad'}"><strong>${group.bmActive ? 'ON' : 'OFF'}</strong> BM ${group.bmActive ? 'active' : 'restricted'}</span>
+          <span class="bm-chip ${group.launchState === 'blocked' ? 'bad' : (group.launchState === 'warn' ? 'warn' : 'ready')}"><strong>${group.launchState === 'blocked' ? 'STOP' : (group.launchState === 'warn' ? 'CHK' : 'OK')}</strong> Launch ${group.launchState === 'blocked' ? 'restricted' : (group.launchState === 'warn' ? 'check' : 'ready')}</span>
           <span class="bm-chip ready"><strong>${num(group.ready)}</strong> ready</span>
           <span class="bm-chip bad"><strong>${num(group.blocked)}</strong> blocked</span>
           <span class="bm-chip warn"><strong>${num(group.warn)}</strong> has GEO</span>
@@ -477,6 +482,29 @@ function rowHtml(row) {
       <td><div class="reason">${esc(reason)}</div></td>
     </tr>
   `;
+}
+function rowLaunchState(row) {
+  const bmStatus = String(row.bm_launch_status || '').toLowerCase();
+  const aaStatus = String(row.launch_status || '').toLowerCase();
+  const bmReason = String(row.bm_launch_block_reason || '').trim();
+  const aaReason = String(row.launch_block_reason || '').trim();
+  const bmRestricted = Boolean(row.bm_launch_restricted) || ['blocked', 'restricted', 'unknown'].includes(bmStatus);
+  const aaRestricted = Boolean(row.launch_restricted) || ['blocked', 'restricted', 'unknown'].includes(aaStatus);
+  if (bmRestricted || aaRestricted) {
+    return {
+      key: 'blocked',
+      label: bmRestricted ? 'BM restricted' : 'Launch restricted',
+      reason: bmReason || aaReason || 'Account is restricted for launch.',
+    };
+  }
+  if (['warning', 'warn', 'check'].includes(bmStatus) || ['warning', 'warn', 'check'].includes(aaStatus)) {
+    return {
+      key: 'warn',
+      label: 'Launch check',
+      reason: bmReason || aaReason || 'Launch status needs review.',
+    };
+  }
+  return { key: 'ready', label: 'Ready', reason: '' };
 }
 function toggleAccount(id, checked) {
   if (checked) state.selectedAccounts.add(String(id)); else state.selectedAccounts.delete(String(id));

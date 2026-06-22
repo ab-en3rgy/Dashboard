@@ -1,11 +1,24 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.7
+// @version 1.0.8
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
 require_once __DIR__ . '/../lib/CreativeGeoRank.php';
 require_once __DIR__ . '/../lib/GlobalLogger.php';
+
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_restricted BOOLEAN NOT NULL DEFAULT FALSE");
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_status TEXT");
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_block_reason TEXT");
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_checked_at TIMESTAMPTZ");
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_source TEXT");
+$db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS launch_source_raw JSONB");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_restricted BOOLEAN NOT NULL DEFAULT FALSE");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_status TEXT");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_block_reason TEXT");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_checked_at TIMESTAMPTZ");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_source TEXT");
+$db->exec("ALTER TABLE ad_accounts ADD COLUMN IF NOT EXISTS launch_source_raw JSONB");
 
 const CAMPAIGN_BUILDER2_DEFAULT_URL_PARAMS = 'sub_id_1={{ad.id}}&sub_id_2={{campaign.id}}&sub_id_3=14886&sub_id_4={{campaign.name}}&sub_id_5={{adset.id}}&sub_id_6={{adset.name}}&sub_id_7={{ad.name}}&sub_id_8={{placement}}&pixel={pixel}';
 
@@ -75,8 +88,18 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
             'bm_name' => (string)$account['bm_name'],
             'bm_is_active' => (bool)$account['bm_is_active'],
             'bm_block_reason' => (string)$account['bm_block_reason'],
+            'bm_launch_restricted' => (bool)$account['bm_launch_restricted'],
+            'bm_launch_status' => (string)$account['bm_launch_status'],
+            'bm_launch_block_reason' => (string)$account['bm_launch_block_reason'],
+            'bm_launch_checked_at' => (string)$account['bm_launch_checked_at'],
+            'bm_launch_source' => (string)$account['bm_launch_source'],
             'eligible_account' => (bool)$account['eligible_account'],
             'account_block_reason' => (string)$account['account_block_reason'],
+            'launch_restricted' => (bool)$account['launch_restricted'],
+            'launch_status' => (string)$account['launch_status'],
+            'launch_block_reason' => (string)$account['launch_block_reason'],
+            'launch_checked_at' => (string)$account['launch_checked_at'],
+            'launch_source' => (string)$account['launch_source'],
             'active_campaigns_count' => $activeCampaignCount,
             'active_geo_count' => $activeForGeo,
             'pending_create_count' => $pendingForGeo,
@@ -111,16 +134,38 @@ function fetchBuilder2Inventory(PDO $db, array $me, array $allowedBmIds, string 
 function builder2Readiness(array $account, string $geo, int $activeForGeo, int $pendingForGeo): array
 {
     $warnings = [];
+    $launch = builder2LaunchState($account);
+    if ($launch['status_key'] === 'blocked') {
+        return [
+            'ready' => false,
+            'status_key' => 'blocked',
+            'status_label' => $launch['status_label'],
+            'block_reason' => $launch['block_reason'],
+            'warnings' => [],
+        ];
+    }
+    if ($launch['status_key'] === 'warn') {
+        $warnings[] = $launch['block_reason'];
+    }
     if (!$account['eligible_account']) {
         return [
             'ready' => false,
             'status_key' => 'blocked',
-            'status_label' => 'BM restricted',
+            'status_label' => 'BM inactive',
             'block_reason' => (string)($account['bm_block_reason'] ?: $account['account_block_reason']),
             'warnings' => [],
         ];
     }
     if ($geo === '') {
+        if ($warnings) {
+            return [
+                'ready' => false,
+                'status_key' => 'warn',
+                'status_label' => 'Launch check',
+                'block_reason' => $warnings[0],
+                'warnings' => $warnings,
+            ];
+        }
         return ['ready' => false, 'status_key' => 'idle', 'status_label' => 'Choose GEO', 'block_reason' => 'Choose a GEO to calculate launch readiness.', 'warnings' => []];
     }
     if ($activeForGeo > 0) {
@@ -132,10 +177,52 @@ function builder2Readiness(array $account, string $geo, int $activeForGeo, int $
     return [
         'ready' => true,
         'status_key' => $warnings ? 'warn' : 'ready',
-        'status_label' => $warnings ? 'Has GEO' : 'Ready',
+        'status_label' => $warnings ? 'Launch check' : 'Ready',
         'block_reason' => '',
         'warnings' => $warnings,
     ];
+}
+
+function builder2LaunchState(array $account): array
+{
+    $bmRestricted = !empty($account['bm_launch_restricted']) || builder2LaunchStatusBlocked((string)($account['bm_launch_status'] ?? ''));
+    $aaRestricted = !empty($account['launch_restricted']) || builder2LaunchStatusBlocked((string)($account['launch_status'] ?? ''));
+    $bmReason = trim((string)($account['bm_launch_block_reason'] ?? ''));
+    $aaReason = trim((string)($account['launch_block_reason'] ?? ''));
+    $bmStatus = strtolower(trim((string)($account['bm_launch_status'] ?? '')));
+    $aaStatus = strtolower(trim((string)($account['launch_status'] ?? '')));
+
+    if ($bmRestricted || $aaRestricted) {
+        return [
+            'status_key' => 'blocked',
+            'status_label' => $bmRestricted ? 'BM restricted' : 'Launch restricted',
+            'block_reason' => $bmReason !== '' ? $bmReason : ($aaReason !== '' ? $aaReason : 'Account is restricted for launch.'),
+        ];
+    }
+
+    if (builder2LaunchStatusWarn($bmStatus) || builder2LaunchStatusWarn($aaStatus)) {
+        return [
+            'status_key' => 'warn',
+            'status_label' => 'Launch check',
+            'block_reason' => $bmReason !== '' ? $bmReason : ($aaReason !== '' ? $aaReason : 'Launch status needs review.'),
+        ];
+    }
+
+    return [
+        'status_key' => 'ready',
+        'status_label' => 'Ready',
+        'block_reason' => '',
+    ];
+}
+
+function builder2LaunchStatusBlocked(string $status): bool
+{
+    return in_array($status, ['blocked', 'restricted', 'unknown'], true);
+}
+
+function builder2LaunchStatusWarn(string $status): bool
+{
+    return in_array($status, ['warning', 'warn', 'check'], true);
 }
 
 function builder2SummarizeRows(array $rows, array $creativeRows): array
@@ -215,6 +302,11 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
             bm.id::text AS bm_id,
             bm.name AS bm_name,
             bm.is_active AS bm_is_active,
+            COALESCE(bm.launch_restricted, FALSE) AS bm_launch_restricted,
+            COALESCE(bm.launch_status, '') AS bm_launch_status,
+            COALESCE(bm.launch_block_reason, '') AS bm_launch_block_reason,
+            COALESCE(bm.launch_checked_at::text, '') AS bm_launch_checked_at,
+            COALESCE(bm.launch_source, '') AS bm_launch_source,
             CASE
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 0
                 ELSE 1
@@ -222,7 +314,12 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
             CASE
                 WHEN bm.is_active IS DISTINCT FROM TRUE THEN 'BM is inactive'
                 ELSE ''
-            END AS account_block_reason
+            END AS account_block_reason,
+            COALESCE(aa.launch_restricted, FALSE) AS launch_restricted,
+            COALESCE(aa.launch_status, '') AS launch_status,
+            COALESCE(aa.launch_block_reason, '') AS launch_block_reason,
+            COALESCE(aa.launch_checked_at::text, '') AS launch_checked_at,
+            COALESCE(aa.launch_source, '') AS launch_source
         FROM public.ad_accounts aa
         JOIN public.business_managers bm ON bm.id = aa.bm_id
         WHERE aa.bm_id::text IN {$bmInSql}
@@ -238,8 +335,18 @@ function fetchBuilder2Accounts(PDO $db, string $bmInSql, array $params): array
         'bm_name' => (string)$row['bm_name'],
         'bm_is_active' => (bool)$row['bm_is_active'],
         'bm_block_reason' => (string)$row['account_block_reason'],
+        'bm_launch_restricted' => (bool)$row['bm_launch_restricted'],
+        'bm_launch_status' => (string)$row['bm_launch_status'],
+        'bm_launch_block_reason' => (string)$row['bm_launch_block_reason'],
+        'bm_launch_checked_at' => (string)$row['bm_launch_checked_at'],
+        'bm_launch_source' => (string)$row['bm_launch_source'],
         'eligible_account' => (bool)$row['eligible_account'],
         'account_block_reason' => (string)$row['account_block_reason'],
+        'launch_restricted' => (bool)$row['launch_restricted'],
+        'launch_status' => (string)$row['launch_status'],
+        'launch_block_reason' => (string)$row['launch_block_reason'],
+        'launch_checked_at' => (string)$row['launch_checked_at'],
+        'launch_source' => (string)$row['launch_source'],
     ], $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 

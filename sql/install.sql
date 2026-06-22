@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS business_managers (
     is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
     name_locked      BOOLEAN      NOT NULL DEFAULT FALSE,
     auto_rules_cron_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    launch_restricted BOOLEAN      NOT NULL DEFAULT FALSE,
+    launch_status    TEXT,
+    launch_block_reason TEXT,
+    launch_checked_at TIMESTAMPTZ,
+    launch_source    TEXT,
+    launch_source_raw JSONB,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     synced_at        TIMESTAMPTZ
@@ -108,6 +114,12 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
     spend_cap     NUMERIC(15,2),
     amount_spent  NUMERIC(15,2) NOT NULL DEFAULT 0,
     balance       NUMERIC(15,2) NOT NULL DEFAULT 0,
+    launch_restricted BOOLEAN      NOT NULL DEFAULT FALSE,
+    launch_status    TEXT,
+    launch_block_reason TEXT,
+    launch_checked_at TIMESTAMPTZ,
+    launch_source    TEXT,
+    launch_source_raw JSONB,
     synced_at     TIMESTAMPTZ
 );
 
