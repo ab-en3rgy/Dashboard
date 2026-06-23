@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.8
+// @version 1.0.9
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -39,7 +39,15 @@ function statusFilterSql(string $alias, string $paramBase, string $value): array
     ];
 }
 
-function campaignDateWindow(string $range, DateTime $now, DateTimeZone $tzObj): array {
+function isIsoDate(string $value): bool {
+    return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $value);
+}
+
+function campaignDateWindow(string $range, DateTime $now, DateTimeZone $tzObj, string $customDate = ''): array {
+    if ($range === 'date') {
+        $day = isIsoDate($customDate) ? $customDate : $now->format('Y-m-d');
+        return [new DateTime($day . ' 00:00:00', $tzObj), new DateTime($day . ' 23:59:59', $tzObj)];
+    }
     switch ($range) {
         case 'yesterday':
             return [(clone $now)->modify('yesterday midnight'), (clone $now)->modify('yesterday 23:59:59')];
@@ -122,6 +130,7 @@ if (!$bmIds) apiOk([]);
 
 $level   = in_array($_GET['level'] ?? '', ['campaign','adset','ad']) ? $_GET['level'] : 'campaign';
 $range   = $_GET['range']       ?? 'today';
+$customDate = trim((string)($_GET['date'] ?? ''));
 $accId   = $_GET['account_id']  ?? null;
 $launchDate = trim((string)($_GET['launch_date'] ?? ''));
 $launchMode = trim((string)($_GET['launch_mode'] ?? ''));
@@ -151,7 +160,7 @@ $tz      = appTimezoneName($me['display_tz'] ?? 'Europe/Kyiv');
 // Period
 $tzObj = appDateTimeZone($tz);
 $now   = new DateTime('now', $tzObj);
-[$dtFrom, $dtTo] = campaignDateWindow($range, $now, $tzObj);
+[$dtFrom, $dtTo] = campaignDateWindow($range, $now, $tzObj, $customDate);
 $dateFrom = $dtFrom->format('Y-m-d');
 $dateTo   = $dtTo->format('Y-m-d');
 

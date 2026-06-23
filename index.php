@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.470
+// @version 1.4.472
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -591,6 +591,10 @@ td.cost-cell.bad{background:rgba(250,62,62,var(--cost-bg-alpha,.18))}
 .dd-item.active{background:var(--blue-bg);color:var(--blue);font-weight:700}
 .dd-sep{height:1px;background:var(--border-light);margin:4px 0}
 .dd-check{margin-left:auto;color:var(--blue)}
+.dd-custom{padding:10px 14px 12px;display:flex;flex-direction:column;gap:6px}
+.dd-custom-label{font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.4px}
+.dd-date{height:30px;width:100%;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;padding:0 8px}
+.dd-date:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-bg)}
 
 /* SCROLLBAR */
 ::-webkit-scrollbar{width:6px;height:6px}
@@ -796,6 +800,11 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
         <div class="dd-item" data-range="90d" onclick="setRange('90d')">3 months</div>
         <div class="dd-item" data-range="this_year" onclick="setRange('this_year')">This year</div>
         <div class="dd-item" data-range="all" onclick="setRange('all')">All time</div>
+        <div class="dd-sep"></div>
+        <div class="dd-custom" data-range="date">
+          <div class="dd-custom-label">Custom date</div>
+          <input class="dd-date" id="customDateInput" type="date" onchange="setCustomDate(this.value)">
+        </div>
       </div>
     </div>
     <button class="tb-btn primary" id="btnRefresh" onclick="syncKeitaroAndRefresh()" style="display:flex;align-items:center;gap:5px;font-size:12px">
@@ -1064,8 +1073,26 @@ function rangeDateStr(range) {
         case '90d':            return `${nDays(90)} - ${today}`;
         case 'this_year':      return `${firstOfYear()} - ${today}`;
         case 'all':            return 'all time';
+        case 'date':           return state.customDate ? formatIsoDateLabel(state.customDate) : 'custom date';
         default:               return range;
     }
+}
+
+function formatIsoDateLabel(isoDate) {
+    if (!isoDate) return 'custom date';
+    const parts = String(isoDate).split('-');
+    if (parts.length !== 3) return String(isoDate);
+    const [y, m, d] = parts;
+    return `${d}.${m}.${String(y).slice(-2)}`;
+}
+
+function isValidIsoDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+function getTodayIsoDate() {
+    const tz = '<?= $displayTz ?>';
+    return new Intl.DateTimeFormat('en-CA', {year:'numeric', month:'2-digit', day:'2-digit', timeZone: tz}).format(new Date());
 }
 
 function updateTzBadge() {
@@ -1073,7 +1100,7 @@ function updateTzBadge() {
     if (el) el.textContent = rangeDateStr(state.range);
 }
 
-const RANGE_LABELS = {today:'Today',yesterday:'Yesterday',yesterday_today:'Yesterday+Today','3d':'3 days','7d':'7 days','14d':'14 days',this_week:'This week',this_month:'This month',last_month:'Last month','30d':'30 days','90d':'3 months',this_year:'This year',all:'All time'};
+const RANGE_LABELS = {today:'Today',yesterday:'Yesterday',yesterday_today:'Yesterday+Today','3d':'3 days','7d':'7 days','14d':'14 days',this_week:'This week',this_month:'This month',last_month:'Last month','30d':'30 days','90d':'3 months',this_year:'This year',all:'All time',date:'Custom date'};
 const SORT_ICO = `<span class="sort-ico"><svg viewBox="0 0 8 5" fill="currentColor"><path d="M4 0l4 5H0z"/></svg><svg viewBox="0 0 8 5" fill="currentColor"><path d="M4 5L0 0h8z"/></svg></span>`;
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TABLE_LEVELS = ['bm','account','campaign','rules_check','adset','ad'];
@@ -1134,6 +1161,7 @@ const STREAMS_COLUMN_DEFS = {
 const state = {
     view:  'campaign', // 'geo'|'month'|'creo'|'campaign'|'adset'|'ad'|'bm'|'bm_cards'|'account'|'tasks'
     range: 'today',
+    customDate: null,
     filters: {
         geo: null, bm_id: null, bm_name: null,
         account_id: null, account_name: null,
@@ -1455,6 +1483,7 @@ function compareWithActive(a, b, primary) {
 function resetRouteState() {
     state.view = 'campaign';
     state.range = 'today';
+    state.customDate = null;
     Object.keys(state.filters).forEach(k => state.filters[k] = null);
     Object.keys(TAB_DEFAULTS).forEach(k => { state.tabs[k] = {...TAB_DEFAULTS[k]}; });
     Object.keys(state.selections).forEach(k => { state.selections[k] = new Set(); });
@@ -1475,6 +1504,7 @@ function pushURL(opts={}) {
     const p = new URLSearchParams();
     p.set('view', state.view);
     p.set('range', state.range);
+    if (state.range === 'date' && state.customDate) p.set('date', state.customDate);
 
     // Global filters
     Object.entries(state.filters).forEach(([k,v]) => {
@@ -1518,6 +1548,7 @@ function readURL() {
 
     state.view  = p.get('view')  || 'campaign';
     state.range = p.get('range') || 'today';
+    state.customDate = p.get('date') || null;
     if (!state.tabs[state.view] && !TABLE_LEVELS.includes(state.view)) state.view = 'geo';
 
     // Filters
@@ -1855,6 +1886,7 @@ async function loadReportFilterOptions() {
 
 function buildAPIParams(extra={}) {
     const p = new URLSearchParams({range: state.range, ...extra});
+    if (state.range === 'date' && state.customDate) p.set('date', state.customDate);
     const allowed = currentReportFilters();
     const level = extra.level || state.view;
     const selectedCampaignIds = [...(state.selections.campaign || new Set())]
@@ -1898,6 +1930,13 @@ function buildAPIParams(extra={}) {
     const curDelivery = state.tabs[state.view]?.delivery || state.tabs[level]?.delivery;
     if (allowed.has('delivery') && curDelivery) p.set('effective_status', curDelivery);
 
+    return p;
+}
+
+function buildTotalsParams(extra={}) {
+    const p = new URLSearchParams({range: state.range, ...extra});
+    if (state.range === 'date' && state.customDate) p.set('date', state.customDate);
+    if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id);
     return p;
 }
 
@@ -2133,6 +2172,24 @@ function openGeoView()  { setView('geo'); }
 
 function setRange(v) {
     state.range = v;
+    if (v !== 'date') state.customDate = null;
+    else if (!state.customDate) state.customDate = getTodayIsoDate();
+    syncRangeUI();
+    closeDropdowns();
+    pushURL();
+    reload();
+    loadCards();
+}
+
+function setCustomDate(v) {
+    const date = isValidIsoDate(v) ? v : '';
+    if (!date) {
+        state.range = 'today';
+        state.customDate = null;
+    } else {
+        state.range = 'date';
+        state.customDate = date;
+    }
     syncRangeUI();
     closeDropdowns();
     pushURL();
@@ -2142,10 +2199,17 @@ function setRange(v) {
 
 function syncRangeUI() {
     const label = document.getElementById('rangeLabel');
-    if (label) label.textContent = RANGE_LABELS[state.range] || state.range;
+    if (label) label.textContent = state.range === 'date'
+        ? formatIsoDateLabel(state.customDate)
+        : (RANGE_LABELS[state.range] || state.range);
     document.querySelectorAll('#ddRange .dd-item').forEach(el => {
         el.classList.toggle('active', el.dataset.range === state.range);
     });
+    document.querySelectorAll('#ddRange [data-range="date"]').forEach(el => {
+        el.classList.toggle('active', state.range === 'date');
+    });
+    const input = document.getElementById('customDateInput');
+    if (input && input.value !== (state.customDate || '')) input.value = state.customDate || '';
     updateTzBadge();
 }
 
@@ -2289,9 +2353,7 @@ function updateCards(T) {
 }
 async function loadCards() {
     try {
-        const params = new URLSearchParams({range: state.range});
-        if (state.filters.bm_id) params.set('bm_id', state.filters.bm_id);
-        const res  = await fetch('/api/totals.php?'+params);
+        const res  = await fetch('/api/totals.php?'+buildTotalsParams());
         const json = await res.json();
         if (json.ok) updateCards(json.data);
     } catch(e) {}
@@ -2957,7 +3019,7 @@ async function loadData() {
             if (currentReportFilters().has('geo') && state.filters.geo) params.set('geo', state.filters.geo);
             const [res, totalsRes] = await Promise.all([
                 fetch('/api/accounts.php?'+params),
-                fetch('/api/totals.php?'+(() => { const p = new URLSearchParams({range:state.range}); if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id); return p; })()),
+                fetch('/api/totals.php?'+buildTotalsParams()),
             ]);
             const [json, totalsJson] = await Promise.all([
                 readApiJson(res, 'accounts'),
@@ -3001,7 +3063,7 @@ async function loadData() {
             const campaignParams = buildAPIParams({level: 'campaign'});
             const [res, totalsRes, rulesRes] = await Promise.all([
                 fetch('/api/campaigns.php?' + campaignParams),
-                fetch('/api/totals.php?' + (() => { const p = new URLSearchParams({range:state.range}); if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id); return p; })()),
+                fetch('/api/totals.php?' + buildTotalsParams()),
                 fetch('/api/rules_check.php?' + buildRulesCheckParams()),
             ]);
             const [json, totalsJson, rulesJson] = await Promise.all([
@@ -3033,7 +3095,7 @@ async function loadData() {
         if (v === 'campaign') params.set('cost_baseline', '1');
         const [res, totalsRes] = await Promise.all([
             fetch('/api/campaigns.php?'+params),
-            fetch('/api/totals.php?'+(() => { const p = new URLSearchParams({range:state.range}); if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id); return p; })()),
+            fetch('/api/totals.php?'+buildTotalsParams()),
         ]);
         const [json, totalsJson] = await Promise.all([
             readApiJson(res, 'campaigns'),
@@ -4579,7 +4641,7 @@ async function loadCreoData() {
         const params = buildAPIParams({level:'ad'});
         const [adsRes, totalsRes, rankMap] = await Promise.all([
             fetch('/api/campaigns.php?'+params),
-            fetch('/api/totals.php?'+(() => { const p = new URLSearchParams({range:state.range}); if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id); return p; })()),
+            fetch('/api/totals.php?'+buildTotalsParams()),
             fetchCreativeRankMap(),
         ]);
         const adsText = await adsRes.text();
@@ -4832,9 +4894,7 @@ function renderCreoTable() {
 async function loadTopCreoData() {
     document.getElementById('topcreoTbl').innerHTML = SPIN;
     try {
-        const params = new URLSearchParams({level:'ad', range:'30d'});
-        if (currentReportFilters().has('bm_id') && state.filters.bm_id)           params.set('bm_id',      state.filters.bm_id);
-        if (currentReportFilters().has('account_id') && exactAccountFilterValue()) params.set('account_id', exactAccountFilterValue());
+        const params = buildAPIParams({level:'ad'});
         const [res, rankMap] = await Promise.all([
             fetch('/api/campaigns.php?'+params),
             fetchCreativeRankMap(),
@@ -6392,9 +6452,7 @@ async function loadGeoTrendsData() {
     document.getElementById('geotrendsChart').innerHTML = SPIN;
     document.getElementById('geotrendsCtrl').innerHTML = '';
     try {
-        const params = new URLSearchParams({level:'campaign', range:'30d'});
-        if (currentReportFilters().has('bm_id') && state.filters.bm_id)           params.set('bm_id',      state.filters.bm_id);
-        if (currentReportFilters().has('account_id') && exactAccountFilterValue()) params.set('account_id', exactAccountFilterValue());
+        const params = buildAPIParams({level:'campaign'});
         const res  = await fetch('/api/campaigns.php?'+params);
         const json = await res.json();
         if (!json.ok) throw new Error(json.error||'API error');
@@ -6546,7 +6604,7 @@ async function loadGeoData() {
             if (accountId) countParams.set('account_id', accountId);
             else if (scope) countParams.set('account_scope', scope);
         }
-        const [campRes,totalsRes,creativeCountsRes]=await Promise.all([fetch('/api/campaigns.php?'+params),fetch('/api/totals.php?'+(() => { const p = new URLSearchParams({range:state.range}); if (currentReportFilters().has('bm_id') && state.filters.bm_id) p.set('bm_id', state.filters.bm_id); return p; })()),fetch('/api/creative_geo_counts.php?'+countParams)]);
+        const [campRes,totalsRes,creativeCountsRes]=await Promise.all([fetch('/api/campaigns.php?'+params),fetch('/api/totals.php?'+buildTotalsParams()),fetch('/api/creative_geo_counts.php?'+countParams)]);
         const campText = await campRes.text();
         const totalsText = await totalsRes.text();
         const creativeCountsText = await creativeCountsRes.text();

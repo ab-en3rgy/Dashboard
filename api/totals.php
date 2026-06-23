@@ -1,22 +1,34 @@
 <?php
 // api/totals.php
+// @version 1.0.1
 // GET /api/totals.php?range=today
+// GET /api/totals.php?range=date&date=2026-06-23
 // Returns aggregated data from insights_daily WITHOUT JOIN on ads/campaigns
 // Used to compute orphan rows in Creatives and Geo
 
 require __DIR__.'/_bootstrap.php';
+
+function isIsoDate(string $value): bool {
+    return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $value);
+}
 
 $bmIds = $auth->allowedBmIds($me);
 if (!$bmIds) apiOk(['spend'=>0,'impressions'=>0,'clicks'=>0,'leads'=>0,'regs'=>0,'deps'=>0,'revenue'=>0]);
 
 $tz      = appTimezoneName($me['display_tz'] ?? 'Europe/Kyiv');
 $range   = $_GET['range']  ?? 'today';
+$customDate = trim((string)($_GET['date'] ?? ''));
 $bmFilter = $_GET['bm_id'] ?? null; // optional BM filter
 
 $tzObj = appDateTimeZone($tz);
 $now   = new DateTime('now', $tzObj);
 
 switch ($range) {
+    case 'date':
+        $day = isIsoDate($customDate) ? $customDate : $now->format('Y-m-d');
+        $dtFrom = new DateTime($day . ' 00:00:00', $tzObj);
+        $dtTo   = new DateTime($day . ' 23:59:59', $tzObj);
+        break;
     case 'yesterday':
         $dtFrom = (clone $now)->modify('yesterday midnight');
         $dtTo   = (clone $now)->modify('yesterday 23:59:59');
