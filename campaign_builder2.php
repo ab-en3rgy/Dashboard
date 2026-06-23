@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.17
+// @version 1.0.18
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -110,7 +110,7 @@ tr:hover td{background:var(--surface2)}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
 .bm-table thead th:nth-child(4),.bm-table tbody td:nth-child(4){width:92px;text-align:center}
 .rc-cell{padding:6px 0;vertical-align:middle}
-.rc-cell-inner{display:flex;align-items:center;justify-content:center;width:100%}
+.rc-cell-inner{display:block;width:100%;text-align:center;line-height:0}
 .rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
