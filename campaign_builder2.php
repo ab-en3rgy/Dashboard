@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.16
+// @version 1.0.17
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -109,7 +109,8 @@ tr:hover td{background:var(--surface2)}
 .check-cell{width:38px;text-align:center}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
 .bm-table thead th:nth-child(4),.bm-table tbody td:nth-child(4){width:92px;text-align:center}
-.rc-cell{padding:6px 0;vertical-align:middle;text-align:center}
+.rc-cell{padding:6px 0;vertical-align:middle}
+.rc-cell-inner{display:flex;align-items:center;justify-content:center;width:100%}
 .rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
@@ -503,11 +504,11 @@ function rowHtml(row) {
       <td class="check-cell"><input type="checkbox" value="${esc(row.account_id)}" ${checked} ${disabled} onchange="toggleAccount('${esc(row.account_id)}', this.checked)"></td>
       <td><span class="badge ${cls}">${esc(row.status_label)}</span></td>
       <td><div class="cell-title">${esc(row.account_name || row.account_id)}</div><div class="cell-sub mono">${esc(row.account_id)}</div></td>
-      <td class="rc-cell">${
+      <td class="rc-cell"><div class="rc-cell-inner">${
         activeCount > 0
           ? `<button class="rc-toggle" type="button" data-account="${esc(accountId)}" aria-label="View active campaigns" aria-expanded="${state.expandedCampaignAccounts.has(accountId) ? 'true' : 'false'}" onclick="toggleActiveCampaigns('${esc(accountId)}')"><span class="badge warn">${num(activeCount)}</span></button>`
           : `<span class="rc-zero">${num(activeCount)}</span>`
-      }</td>
+      }</div></td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge warn">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td><div class="reason">${esc(reason)}</div></td>
     </tr>
