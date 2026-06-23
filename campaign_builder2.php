@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.18
+// @version 1.0.19
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -99,7 +99,7 @@ tr:hover td{background:var(--surface2)}
 .bm-table thead th{position:static}
 .cell-title{font-weight:750;color:var(--text);line-height:1.2;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cell-sub{font-size:11.5px;color:var(--text3);margin-top:2px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:800;white-space:nowrap}
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:5px;font-size:11.5px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
 .badge.ready{background:var(--green-bg);color:var(--green)}
 .badge.warn{background:var(--amber-bg);color:var(--amber)}
 .badge.blocked{background:var(--red-bg);color:var(--red)}
@@ -110,11 +110,11 @@ tr:hover td{background:var(--surface2)}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
 .bm-table thead th:nth-child(4),.bm-table tbody td:nth-child(4){width:92px;text-align:center}
 .rc-cell{padding:6px 0;vertical-align:middle}
-.rc-cell-inner{display:block;width:100%;text-align:center;line-height:0}
+.rc-cell-inner{display:grid;width:100%;place-items:center;line-height:0}
 .rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
-.rc-zero{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:0;padding:3px 8px;border-radius:5px;border:1px solid var(--border-light);background:var(--surface2);font-size:11.5px;font-weight:800;color:var(--text3);line-height:1;vertical-align:middle}
+.rc-zero{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:0;padding:3px 8px;border-radius:5px;border:1px solid var(--border-light);background:var(--surface2);font-size:11.5px;font-weight:800;color:var(--text3);line-height:1;vertical-align:middle;font-variant-numeric:tabular-nums}
 .rc-detail-row td{padding:0;border-bottom:1px solid var(--border-light);background:var(--surface2)}
 .rc-detail{padding:8px 12px 10px 12px;border-left:3px solid var(--blue);margin-left:38px;display:flex;flex-direction:column;gap:8px}
 .rc-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
