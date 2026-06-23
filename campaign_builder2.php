@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.14
+// @version 1.0.15
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -108,10 +108,11 @@ tr:hover td{background:var(--surface2)}
 .reason{color:var(--text2);font-size:12px;max-width:260px;line-height:1.3}
 .check-cell{width:38px;text-align:center}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
-.rc-cell{padding:6px 10px;vertical-align:middle}
-.rc-toggle{display:inline-block;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
+.rc-cell{padding:6px 10px;vertical-align:middle;text-align:center}
+.rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
 .rc-toggle:hover{text-decoration:underline}
 .rc-toggle[disabled]{cursor:default;color:var(--text3);text-decoration:none}
+.rc-zero{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:0;padding:3px 8px;border-radius:5px;border:1px solid var(--border-light);background:var(--surface2);font-size:11.5px;font-weight:800;color:var(--text3);line-height:1;vertical-align:middle}
 .rc-detail-row td{padding:0;border-bottom:1px solid var(--border-light);background:var(--surface2)}
 .rc-detail{padding:8px 12px 10px 12px;border-left:3px solid var(--blue);margin-left:38px;display:flex;flex-direction:column;gap:8px}
 .rc-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -504,7 +505,7 @@ function rowHtml(row) {
       <td class="rc-cell">${
         activeCount > 0
           ? `<button class="rc-toggle" type="button" data-account="${esc(accountId)}" aria-label="View active campaigns" aria-expanded="${state.expandedCampaignAccounts.has(accountId) ? 'true' : 'false'}" onclick="toggleActiveCampaigns('${esc(accountId)}')"><span class="badge warn">${num(activeCount)}</span></button>`
-          : `<span class="badge warn">${num(activeCount)}</span>`
+          : `<span class="rc-zero">${num(activeCount)}</span>`
       }</td>
       <td>${Number(row.active_geo_count || 0) ? '<span class="badge warn">' + num(row.active_geo_count) + '</span>' : '<span class="badge ready">0</span>'}</td>
       <td><div class="reason">${esc(reason)}</div></td>
