@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.7
+// @version 1.0.8
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -459,6 +459,8 @@ if ($level === 'campaign') {
                aa.name AS account_name, aa.currency, aa.timezone_name, aa.status AS account_status,
                bm.id   AS bm_id, bm.name AS bm_name,
                c.name  AS campaign_name,
+               c.daily_budget AS campaign_daily_budget,
+               c.lifetime_budget AS campaign_lifetime_budget,
                c.status AS campaign_status,
                c.effective_status AS campaign_effective_status
         FROM ad_sets s
@@ -492,7 +494,10 @@ if ($level === 'campaign') {
                a.ad_set_id::text, a.campaign_id::text, a.ad_account_id,
                aa.name AS account_name, aa.currency, aa.timezone_name, aa.status AS account_status,
                bm.id   AS bm_id, bm.name AS bm_name,
-               c.name  AS campaign_name, c.status AS campaign_status, c.effective_status AS campaign_effective_status,
+               c.name  AS campaign_name,
+               c.daily_budget AS campaign_daily_budget,
+               c.lifetime_budget AS campaign_lifetime_budget,
+               c.status AS campaign_status, c.effective_status AS campaign_effective_status,
                s.name AS adset_name, s.status AS adset_status, s.effective_status AS adset_effective_status
         FROM ads a
         JOIN ad_sets s            ON s.id  = a.ad_set_id
@@ -583,6 +588,8 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
     if ($level === 'adset' || $level === 'ad') {
         $out['campaign_id']   = $r['campaign_id'];
         $out['campaign_name'] = $r['campaign_name'];
+        $out['campaign_daily_budget'] = array_key_exists('campaign_daily_budget', $r) && $r['campaign_daily_budget'] !== null ? (float)$r['campaign_daily_budget'] : null;
+        $out['campaign_lifetime_budget'] = array_key_exists('campaign_lifetime_budget', $r) && $r['campaign_lifetime_budget'] !== null ? (float)$r['campaign_lifetime_budget'] : null;
         $out['campaign_status'] = $r['campaign_status'] ?? null;
         $out['campaign_effective_status'] = $r['campaign_effective_status'] ?? null;
     }

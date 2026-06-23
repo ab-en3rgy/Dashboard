@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.468
+// @version 1.4.469
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -1266,8 +1266,8 @@ function costMetricCell(s, metric, value = null, baseline = null) {
     return `<td class="cost-cell ${cls}"${style}><div class="tdi"><div class="num-wrap"><span class="num">${actual > 0 ? f$(actual) : '-'}</span>${costDiffHtml(actual, baseline, metric)}</div></div></td>`;
 }
 function campaignBudgetInfo(row) {
-    const daily = Number(row?.daily_budget || 0);
-    const lifetime = Number(row?.lifetime_budget || 0);
+    const daily = Number(row?.daily_budget || row?.campaign_daily_budget || 0);
+    const lifetime = Number(row?.lifetime_budget || row?.campaign_lifetime_budget || 0);
     if (daily > 0) {
         return {
             value: daily,
