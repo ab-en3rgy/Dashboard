@@ -157,6 +157,15 @@ class GlobalLogger
                     'bid_delta_pct' => $payload['bid_delta_pct'] ?? null,
                 ],
             ],
+            'refresh_ad_text' => [
+                'entity_type' => 'ad',
+                'action' => 'refresh_ad_text',
+                'desired_state' => [
+                    'mode' => $payload['mode'] ?? 'append_dot',
+                    'text_scope' => $payload['text_scope'] ?? 'main_ad_text',
+                    'preserve_languages' => $payload['preserve_languages'] ?? true,
+                ],
+            ],
             'create_campaign' => [
                 'entity_type' => 'campaign',
                 'action' => 'create_campaign',

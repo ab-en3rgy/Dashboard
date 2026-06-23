@@ -235,14 +235,15 @@ class AutoRuleTasks
                 finished_at TIMESTAMPTZ,
                 CONSTRAINT tasks_type_chk CHECK (task_type IN (
                     'set_campaign_status',
-                    'set_adset_status',
-                    'set_ad_status',
-                    'delete_campaign',
-                    'update_campaign_budget',
-                    'update_adset_budget',
-                    'update_adset_bid',
-                    'create_campaign'
-                )),
+                'set_adset_status',
+                'set_ad_status',
+                'delete_campaign',
+                'update_campaign_budget',
+                'update_adset_budget',
+                'update_adset_bid',
+                'refresh_ad_text',
+                'create_campaign'
+            )),
                 CONSTRAINT tasks_status_chk CHECK (status IN (
                     'pending',
                     'running',
@@ -262,14 +263,15 @@ class AutoRuleTasks
             ALTER TABLE IF EXISTS public.tasks
                 ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
                     'set_campaign_status',
-                    'set_adset_status',
-                    'set_ad_status',
-                    'delete_campaign',
-                    'update_campaign_budget',
-                    'update_adset_budget',
-                    'update_adset_bid',
-                    'create_campaign'
-                ));
+                'set_adset_status',
+                'set_ad_status',
+                'delete_campaign',
+                'update_campaign_budget',
+                'update_adset_budget',
+                'update_adset_bid',
+                'refresh_ad_text',
+                'create_campaign'
+            ));
         ");
     }
 

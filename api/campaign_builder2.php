@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder2.php
-// @version 1.0.9
+// @version 1.0.10
 // Separate inventory-first Campaign Builder for launch readiness.
 
 require __DIR__ . '/_bootstrap.php';
@@ -733,14 +733,15 @@ function ensureBuilder2TasksSchema(PDO $db): void
         ALTER TABLE IF EXISTS public.tasks DROP CONSTRAINT IF EXISTS tasks_type_chk;
         ALTER TABLE IF EXISTS public.tasks ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
             'set_campaign_status',
-            'set_adset_status',
-            'set_ad_status',
-            'delete_campaign',
-            'update_campaign_budget',
-            'update_adset_budget',
-            'update_adset_bid',
-            'create_campaign'
-        ));
+                'set_adset_status',
+                'set_ad_status',
+                'delete_campaign',
+                'update_campaign_budget',
+                'update_adset_budget',
+                'update_adset_bid',
+                'refresh_ad_text',
+                'create_campaign'
+            ));
         ALTER TABLE IF EXISTS public.tasks DROP CONSTRAINT IF EXISTS tasks_status_chk;
         ALTER TABLE IF EXISTS public.tasks ADD CONSTRAINT tasks_status_chk CHECK (status IN ('pending', 'running', 'done', 'failed', 'cancelled'));
         CREATE INDEX IF NOT EXISTS idx_tasks_poll ON public.tasks (status, run_after, priority DESC, created_at);

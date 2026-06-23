@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
         'update_campaign_budget',
         'update_adset_budget',
         'update_adset_bid',
+        'refresh_ad_text',
         'create_campaign'
     )),
     CONSTRAINT tasks_status_chk CHECK (status IN (

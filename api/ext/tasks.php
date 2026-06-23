@@ -1,6 +1,6 @@
 <?php
 // api/ext/tasks.php
-// @version 1.0.3
+// @version 1.0.4
 // POST { secret, action, ... }
 // Actions:
 // - schema
@@ -22,6 +22,7 @@ const TASK_TYPES = [
     'update_campaign_budget',
     'update_adset_budget',
     'update_adset_bid',
+    'refresh_ad_text',
     'create_campaign',
 ];
 
@@ -138,6 +139,7 @@ function ensureTasksSchema(PDO $db): void {
                 'update_campaign_budget',
                 'update_adset_budget',
                 'update_adset_bid',
+                'refresh_ad_text',
                 'create_campaign'
             )),
             CONSTRAINT tasks_status_chk CHECK (status IN (
@@ -164,17 +166,18 @@ function ensureTasksSchema(PDO $db): void {
             ON public.tasks (task_type, status, created_at DESC);
         ALTER TABLE IF EXISTS public.tasks
             DROP CONSTRAINT IF EXISTS tasks_type_chk;
-        ALTER TABLE IF EXISTS public.tasks
-            ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
-                'set_campaign_status',
-                'set_adset_status',
-                'set_ad_status',
-                'delete_campaign',
-                'update_campaign_budget',
-                'update_adset_budget',
-                'update_adset_bid',
-                'create_campaign'
-            ));
+            ALTER TABLE IF EXISTS public.tasks
+                ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
+                    'set_campaign_status',
+                    'set_adset_status',
+                    'set_ad_status',
+                    'delete_campaign',
+                    'update_campaign_budget',
+                    'update_adset_budget',
+                    'update_adset_bid',
+                    'refresh_ad_text',
+                    'create_campaign'
+                ));
     ");
 }
 
@@ -224,7 +227,12 @@ function taskSchema(): array {
                 'bid_amount_cents' => 'optional integer',
                 'bid_delta_pct' => 'decimal percent like 0.10 or -0.20',
             ],
-        'update_adset_bid_delta' => ['bid_delta_pct' => 'decimal percent like 0.10 or -0.20'],
+            'refresh_ad_text' => [
+                'mode' => 'append_dot',
+                'text_scope' => 'main_ad_text',
+                'preserve_languages' => 'boolean',
+            ],
+            'update_adset_bid_delta' => ['bid_delta_pct' => 'decimal percent like 0.10 or -0.20'],
             'create_campaign' => [
                 'geo' => '2-letter country code',
                 'adsets_num' => 'integer, default 3',
@@ -295,6 +303,7 @@ function normalizeTaskType(string $type): string {
         'campaign_budget', 'update_campaign_budget' => 'update_campaign_budget',
         'adset_budget', 'update_adset_budget' => 'update_adset_budget',
         'adset_bid', 'update_adset_bid' => 'update_adset_bid',
+        'ad_text_refresh', 'edit_ad_text', 'refresh_ad_text' => 'refresh_ad_text',
         'campaign_create', 'create_campaign' => 'create_campaign',
         default => $type,
     };
@@ -315,6 +324,15 @@ function normalizePayload(string $type, array $payload): array {
             $payload['bid_delta_pct'] = (float)($payload['bid_delta_pct'] ?? $payload['bidDeltaPct']);
             if (!isset($payload['bid_mode'])) $payload['bid_mode'] = 'delta';
         }
+    }
+
+    if ($type === 'refresh_ad_text') {
+        $payload['mode'] = strtolower(trim((string)($payload['mode'] ?? $payload['refresh_mode'] ?? 'append_dot')));
+        if ($payload['mode'] === '') $payload['mode'] = 'append_dot';
+        $payload['text_scope'] = strtolower(trim((string)($payload['text_scope'] ?? $payload['textScope'] ?? 'main_ad_text')));
+        if ($payload['text_scope'] === '') $payload['text_scope'] = 'main_ad_text';
+        $payload['preserve_languages'] = (bool)($payload['preserve_languages'] ?? $payload['preserveLanguages'] ?? true);
+        unset($payload['refresh_mode'], $payload['textScope'], $payload['preserveLanguages']);
     }
 
     if ($type === 'create_campaign') {
@@ -373,7 +391,7 @@ function validateTask(array $task): void {
     if (in_array($type, ['set_adset_status', 'update_adset_budget', 'update_adset_bid'], true) && !$task['adset_id']) {
         extError(400, 'adset_id required');
     }
-    if ($type === 'set_ad_status' && !$task['ad_id']) {
+    if (in_array($type, ['set_ad_status', 'refresh_ad_text'], true) && !$task['ad_id']) {
         extError(400, 'ad_id required');
     }
 
@@ -392,6 +410,9 @@ function validateTask(array $task): void {
         if (!$hasAbsolute && !$hasDelta) {
             extError(400, 'bid_amount or bid_delta_pct required');
         }
+    }
+    if ($type === 'refresh_ad_text' && ($payload['mode'] ?? '') !== 'append_dot') {
+        extError(400, 'refresh_ad_text payload.mode must be append_dot');
     }
     if ($type === 'create_campaign') {
         foreach (['geo', 'dest_url', 'page_id', 'daily_budget', 'bid_strategy_mode'] as $key) {

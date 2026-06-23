@@ -1,6 +1,6 @@
 <?php
 // api/campaign_builder.php
-// @version 1.0.13
+// @version 1.0.14
 // Session-auth API for the New Campaign task generator.
 
 require __DIR__ . '/_bootstrap.php';
@@ -112,6 +112,7 @@ function ensureCampaignBuilderTasksSchema(PDO $db): void
                 'update_campaign_budget',
                 'update_adset_budget',
                 'update_adset_bid',
+                'refresh_ad_text',
                 'create_campaign'
             ));
         ALTER TABLE IF EXISTS public.tasks

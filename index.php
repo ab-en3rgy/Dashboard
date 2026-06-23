@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.469
+// @version 1.4.470
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -303,6 +303,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .campaign-delete-btn:hover{background:var(--red-bg);border-color:#f1a6a6}
 .campaign-delete-btn:disabled{opacity:.55;cursor:not-allowed}
 .campaign-delete-btn svg{width:13px;height:13px}
+.ad-inline-actions{display:inline-flex;align-items:center;gap:6px;margin-left:8px}
+.ad-text-refresh-btn{width:24px;height:24px;border:1px solid #c8dbff;background:#eff5ff;color:var(--blue);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.ad-text-refresh-btn:hover{background:var(--blue-bg);border-color:var(--blue)}
+.ad-text-refresh-btn:disabled{opacity:.55;cursor:not-allowed}
+.ad-text-refresh-btn svg{width:13px;height:13px}
 #adsetBidModal{display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.46);align-items:center;justify-content:center;padding:24px}
 #adsetBidModal.open{display:flex}
 #adsetBidModal .modal-box{width:min(420px,96vw);background:var(--surface);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
@@ -3857,11 +3862,10 @@ function renderTable() {
             ? pendingCampaignTasks.get(String(row.id))
             : (isAdset ? pendingAdsetTasks.get(String(row.id)) : (isAd ? pendingAdTasks.get(String(row.id)) : null));
         const displayStatus = pendingTask ? 'PENDING_TASK' : ownDisplayStatus;
-        const pendingActionLabel = pendingTask?.taskType === 'delete_campaign'
-            ? 'Delete'
-            : (pendingTask?.taskType === 'update_adset_bid'
-                ? (pendingTask.targetLabel || 'Bid update')
-                : (pendingTask?.desiredStatus === 'ACTIVE' ? 'ACTIVE' : 'PAUSED'));
+        let pendingActionLabel = pendingTask?.desiredStatus === 'ACTIVE' ? 'ACTIVE' : 'PAUSED';
+        if (pendingTask?.taskType === 'delete_campaign') pendingActionLabel = 'Delete';
+        else if (pendingTask?.taskType === 'update_adset_bid') pendingActionLabel = pendingTask.targetLabel || 'Bid update';
+        else if (pendingTask?.taskType === 'refresh_ad_text') pendingActionLabel = pendingTask.targetLabel || 'Ad text refresh';
         const isOrphan = row._isOrphan;
         const dlvLabel={ACTIVE:'Active',PAUSED:'Paused',MANUAL_STOP:'Manual stop',PENDING_TASK:'Updating',DELETED:'Deleted',ARCHIVED:'Archived',IN_PROCESS:'Learning',WITH_ISSUES:'Issue',DISAPPROVED:'Disapproved'}[displayStatus]||dlv;
         const realStatusLabel = {
@@ -3883,11 +3887,15 @@ function renderTable() {
         const pendingClass = pendingTask ? ' campaign-status-pending' : '';
         const canDeleteCampaign = isCamp && !isOrphan && !accountInactive && !pendingTask && realStatus !== 'DELETED' && realStatus !== 'ARCHIVED';
         const canEditBid = isAdset && !isOrphan && !accountInactive && !pendingTask;
+        const canRefreshAdText = isAd && !isOrphan && !accountInactive && !pendingTask && (ownDisplayStatus === 'DISAPPROVED' || realStatus === 'DISAPPROVED');
         const bidCellHtml = isAdset
             ? `<td><div class="tdi"><div><div class="bid-cell"><span class="num bid-value">${row.bid_amount !== null && row.bid_amount !== undefined ? f$(row.bid_amount) : '-'}</span><button class="bid-edit-btn" title="${escAttr(canEditBid ? 'Edit bid' : (pendingTask ? ('Task #' + (pendingTask.taskId || '...') + ' in progress') : accountStatusLabel))}" ${canEditBid ? `onclick="openAdsetBidPopup('${escAttr(String(row.id))}')"` : 'disabled'}><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z\"/></svg></button></div>${pendingTask?.taskType === 'update_adset_bid' ? `<div class="dlv-sub" style="text-align:right;color:#9a4b00;font-weight:700">${esc(pendingTask.targetLabel || 'Waiting for bid update')}</div>` : ''}</div></div></td>`
             : '';
         const deleteButton = isCamp
             ? `<span class="campaign-inline-actions"><button class="campaign-delete-btn" title="${escAttr(canDeleteCampaign ? 'Delete campaign' : (pendingTask ? 'Task in progress' : 'Campaign cannot be deleted right now'))}" ${canDeleteCampaign ? `onclick="event.stopPropagation(); deleteCampaign('${escAttr(String(row.id))}')"` : 'disabled'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button></span>`
+            : '';
+        const refreshAdTextButton = isAd
+            ? `<span class="ad-inline-actions"><button class="ad-text-refresh-btn" title="${escAttr(canRefreshAdText ? 'Append a dot to the main ad text and resubmit for review' : (pendingTask ? 'Task in progress' : 'Only disapproved ads can be refreshed'))}" ${canRefreshAdText ? `onclick="event.stopPropagation(); refreshAdText('${escAttr(String(row.id))}')"` : 'disabled'}><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z\"/></svg></button></span>`
             : '';
         html+=`<tr class="${(selected?'sel':'')}${statusClass}${pendingClass}"${isOrphan?' style="opacity:.7"':''}>
         <td><div class="tdi center">${isOrphan?'':'<input type="checkbox" data-id="'+row.id+'" '+(selected?'checked':'')+' onchange="toggleRow(\''+row.id+'\',this)">'}</div></td>
@@ -3895,7 +3903,7 @@ function renderTable() {
         <td><div class="tdi left"><div class="nc">
                 <div class="nc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${isCamp?'<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>':isAdset?'<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>':'<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="12" x2="15" y2="12"/>'}</svg></div>
                 <div class="nc-texts">
-                    <div class="nc-name" ${isOrphan?'style="color:var(--text3);cursor:default"':('onclick="drillDown(\''+row.id+'\')"')}>${esc(row.name)}${deleteButton}</div>
+                    <div class="nc-name" ${isOrphan?'style="color:var(--text3);cursor:default"':('onclick="drillDown(\''+row.id+'\')"')}>${esc(row.name)}${deleteButton}${refreshAdTextButton}</div>
                     <div class="nc-sub">${isOrphan?'':esc(row.id)+'  |  '+(row.account_id||'')+(row.bm_name?' '+row.bm_name:'')}</div>
                 </div>
             </div></div></td>
@@ -4106,6 +4114,58 @@ async function deleteCampaign(id) {
     }
 }
 
+async function refreshAdText(id) {
+    const row = rows.find(r => String(r.id) === String(id));
+    if (!row) return;
+    const status = String(row.effective_status || row.status || '').toUpperCase();
+    if (status !== 'DISAPPROVED') {
+        alert('Only disapproved ads can be refreshed.');
+        return;
+    }
+    if (!confirm(`Append a dot to the main text for "${row.name || row.id}" and resubmit it for review?\n\nThis keeps the language-specific creatives unchanged.`)) return;
+    pendingAdTasks.set(String(id), {
+        taskId: null,
+        taskType: 'refresh_ad_text',
+        targetLabel: 'Ad text refresh',
+        previousStatus: row.status,
+        previousEffectiveStatus: row.effective_status,
+        startedAt: Date.now()
+    });
+    renderTable();
+    try {
+        const res = await fetch('/api/tasks.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                task_type: 'refresh_ad_text',
+                ad_id: String(id),
+                payload: {
+                    mode: 'append_dot',
+                    text_scope: 'main_ad_text',
+                    preserve_languages: true,
+                    source: 'dashboard_ad_text_refresh',
+                    reason: 'Append a dot to the main ad text and resubmit for review'
+                }
+            })
+        });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || 'Task API error');
+        const task = json.data?.task || {};
+        const pending = pendingAdTasks.get(String(id));
+        if (pending) {
+            pending.taskId = task.id;
+            pending.status = task.status || 'pending';
+            pendingAdTasks.set(String(id), pending);
+        }
+        renderTable();
+        pollEntityTask(task.id, String(id), null, 'refresh_ad_text', 'ad');
+    } catch (e) {
+        pendingAdTasks.delete(String(id));
+        renderTable();
+        alert('Task error: ' + e.message);
+    }
+}
+
 function pendingTaskMap(entityType) {
     if (entityType === 'campaign') return pendingCampaignTasks;
     if (entityType === 'ad') return pendingAdTasks;
@@ -4197,6 +4257,9 @@ function pollEntityTask(taskId, entityId, desiredStatus, taskType = 'set_campaig
 function applyEntityTaskDone(entityId, desiredStatus, taskType = 'set_campaign_status', entityType = 'campaign', task = null) {
     const row = rows.find(r => String(r.id) === String(entityId));
     if (!row) return;
+    if (entityType === 'ad' && taskType === 'refresh_ad_text') {
+        return;
+    }
     if (entityType === 'adset' && taskType === 'update_adset_bid') {
         const finalBid = bidTaskResolvedValue(task || {});
         if (finalBid !== null) row.bid_amount = finalBid;

@@ -1,6 +1,6 @@
 <?php
 // api/tasks.php
-// @version 1.0.4
+// @version 1.0.5
 // Internal dashboard view of external task queue.
 
 require __DIR__ . '/_bootstrap.php';
@@ -163,8 +163,9 @@ function createDashboardTask(PDO $db, array $me, array $allowedBmIds, array $inp
     if (in_array($taskType, ['campaign_status', 'set_status'], true)) $taskType = 'set_campaign_status';
     if (in_array($taskType, ['adset_status', 'set_adset_status'], true)) $taskType = 'set_adset_status';
     if (in_array($taskType, ['ad_status', 'set_ad_status'], true)) $taskType = 'set_ad_status';
+    if (in_array($taskType, ['ad_text_refresh', 'edit_ad_text', 'refresh_ad_text'], true)) $taskType = 'refresh_ad_text';
     if (in_array($taskType, ['campaign_delete', 'delete'], true)) $taskType = 'delete_campaign';
-    if (!in_array($taskType, ['set_campaign_status', 'set_adset_status', 'set_ad_status', 'delete_campaign', 'update_adset_bid'], true)) {
+    if (!in_array($taskType, ['set_campaign_status', 'set_adset_status', 'set_ad_status', 'delete_campaign', 'update_adset_bid', 'refresh_ad_text'], true)) {
         apiError(400, 'Unsupported task_type');
     }
 
@@ -311,6 +312,10 @@ function createDashboardTask(PDO $db, array $me, array $allowedBmIds, array $inp
         createAdStatusTask($db, $allowed, $createdBy, $priority, $input, $payload);
     }
 
+    if ($taskType === 'refresh_ad_text') {
+        createAdTextRefreshTask($db, $allowed, $createdBy, $priority, $input, $payload);
+    }
+
     $adsetId = trim((string)($input['adset_id'] ?? $payload['adset_id'] ?? $input['id'] ?? ''));
     if ($adsetId === '') apiError(400, 'adset_id required');
     $bidDeltaPct = $payload['bid_delta_pct'] ?? $payload['bidDeltaPct'] ?? $input['bid_delta_pct'] ?? $input['bidDeltaPct'] ?? null;
@@ -432,6 +437,55 @@ function createAdStatusTask(PDO $db, array $allowedBmIds, string $createdBy, int
     apiOk(['task' => formatDashboardTask($row)]);
 }
 
+function createAdTextRefreshTask(PDO $db, array $allowedBmIds, string $createdBy, int $priority, array $input, array $payload): void {
+    $adId = trim((string)($input['ad_id'] ?? $payload['ad_id'] ?? $input['id'] ?? ''));
+    if ($adId === '') apiError(400, 'ad_id required');
+
+    $ad = fetchAdTaskTarget($db, $adId);
+    if (!$ad) apiError(404, 'Ad not found');
+    if (!in_array((string)$ad['bm_id'], $allowedBmIds, true)) apiError(403, 'BM access denied');
+
+    $status = strtoupper(trim((string)($ad['ad_effective_status'] ?? $ad['ad_status'] ?? '')));
+    if ($status !== 'DISAPPROVED') apiError(409, 'Only disapproved ads can be refreshed');
+    if (hasOpenAdTask($db, $adId, ['set_ad_status', 'refresh_ad_text'])) {
+        apiError(409, 'Ad task already in progress');
+    }
+
+    $payload = array_merge($payload, [
+        'manual' => true,
+        'source' => 'dashboard_ad_text_refresh',
+        'mode' => 'append_dot',
+        'text_scope' => 'main_ad_text',
+        'preserve_languages' => true,
+        'ad_id' => $adId,
+        'ad_name' => $ad['ad_name'],
+        'creative_name' => $ad['ad_name'],
+        'adset_name' => $ad['adset_name'],
+        'campaign_name' => $ad['campaign_name'],
+    ]);
+
+    $row = insertDashboardAdStatusTask($db, [
+        'task_type' => 'refresh_ad_text',
+        'priority' => $priority,
+        'bm_id' => (string)$ad['bm_id'],
+        'account_id' => (string)$ad['account_id'],
+        'campaign_id' => (string)$ad['campaign_id'],
+        'adset_id' => (string)$ad['adset_id'],
+        'ad_id' => $adId,
+        'payload' => $payload,
+        'created_by' => $createdBy,
+        'max_attempts' => 3,
+    ]);
+    GlobalLogger::logTaskEvent($db, 'task_created', 'pending', $row, [
+        'before_state' => [
+            'status' => $ad['ad_status'] ?? null,
+            'effective_status' => $ad['ad_effective_status'] ?? null,
+        ],
+        'reason' => (string)($payload['reason'] ?? 'Append a dot to main ad text and resubmit'),
+    ]);
+    apiOk(['task' => formatDashboardTask($row)]);
+}
+
 function pauseCreativeAdsTasks(PDO $db, array $me, array $allowedBmIds, array $input): void {
     $creativeName = trim((string)($input['creative_name'] ?? $input['ad_name'] ?? $input['name'] ?? ''));
     if ($creativeName === '') apiError(400, 'creative_name required');
@@ -509,7 +563,7 @@ function pauseCreativeAdsTasks(PDO $db, array $me, array $allowedBmIds, array $i
     $created = [];
     $skipped = 0;
     foreach ($ads as $ad) {
-        if (hasOpenAdStatusTask($db, (string)$ad['ad_id'], 'PAUSED')) {
+        if (hasOpenAdTask($db, (string)$ad['ad_id'], ['set_ad_status'])) {
             $skipped++;
             continue;
         }
@@ -579,17 +633,24 @@ function fetchAdTaskTarget(PDO $db, string $adId): ?array {
     return $row ?: null;
 }
 
-function hasOpenAdStatusTask(PDO $db, string $adId, string $desiredStatus): bool {
+function hasOpenAdTask(PDO $db, string $adId, array $taskTypes): bool {
+    if (!$taskTypes) return false;
+    $ph = [];
+    $params = [':ad_id' => $adId];
+    foreach (array_values($taskTypes) as $i => $taskType) {
+        $key = ":type_{$i}";
+        $ph[] = $key;
+        $params[$key] = $taskType;
+    }
     $stmt = $db->prepare("
         SELECT 1
         FROM public.tasks
-        WHERE task_type = 'set_ad_status'
+        WHERE task_type IN (" . implode(',', $ph) . ")
           AND status IN ('pending', 'running')
           AND ad_id = :ad_id
-          AND payload->>'desired_status' = :desired_status
         LIMIT 1
     ");
-    $stmt->execute([':ad_id' => $adId, ':desired_status' => $desiredStatus]);
+    $stmt->execute($params);
     return (bool)$stmt->fetchColumn();
 }
 
@@ -799,6 +860,7 @@ function ensureTasksDashboardSchema(PDO $db): void {
                 'update_campaign_budget',
                 'update_adset_budget',
                 'update_adset_bid',
+                'refresh_ad_text',
                 'create_campaign'
             )),
             CONSTRAINT tasks_status_chk CHECK (status IN (
@@ -822,17 +884,18 @@ function ensureTasksDashboardSchema(PDO $db): void {
             ON public.tasks (task_type, status, created_at DESC);
         ALTER TABLE IF EXISTS public.tasks
             DROP CONSTRAINT IF EXISTS tasks_type_chk;
-        ALTER TABLE IF EXISTS public.tasks
-            ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
-                'set_campaign_status',
-                'set_adset_status',
-                'set_ad_status',
-                'delete_campaign',
-                'update_campaign_budget',
-                'update_adset_budget',
-                'update_adset_bid',
-                'create_campaign'
-            ));
+            ALTER TABLE IF EXISTS public.tasks
+                ADD CONSTRAINT tasks_type_chk CHECK (task_type IN (
+                    'set_campaign_status',
+                    'set_adset_status',
+                    'set_ad_status',
+                    'delete_campaign',
+                    'update_campaign_budget',
+                    'update_adset_budget',
+                    'update_adset_bid',
+                    'refresh_ad_text',
+                    'create_campaign'
+                ));
     ");
 }
 
