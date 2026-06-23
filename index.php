@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.467
+// @version 1.4.468
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -1264,6 +1264,33 @@ function costMetricCell(s, metric, value = null, baseline = null) {
     const cls = actual > 0 && base > 0 ? (actual < base ? 'good' : (actual > base ? 'bad' : '')) : '';
     const style = alpha > 0 ? ` style="--cost-bg-alpha:${alpha.toFixed(3)}"` : '';
     return `<td class="cost-cell ${cls}"${style}><div class="tdi"><div class="num-wrap"><span class="num">${actual > 0 ? f$(actual) : '-'}</span>${costDiffHtml(actual, baseline, metric)}</div></div></td>`;
+}
+function campaignBudgetInfo(row) {
+    const daily = Number(row?.daily_budget || 0);
+    const lifetime = Number(row?.lifetime_budget || 0);
+    if (daily > 0) {
+        return {
+            value: daily,
+            kind: 'Daily',
+            suffix: '/day',
+            title: `Daily budget: ${f$(daily)}/day${lifetime > 0 ? ` | Lifetime budget: ${f$(lifetime)}` : ''}`,
+        };
+    }
+    if (lifetime > 0) {
+        return {
+            value: lifetime,
+            kind: 'Lifetime',
+            suffix: ' lifetime',
+            title: `Lifetime budget: ${f$(lifetime)}`,
+        };
+    }
+    return null;
+}
+function campaignBudgetHtml(row, withTitle = true) {
+    const info = campaignBudgetInfo(row);
+    if (!info) return '-';
+    const title = withTitle ? ` title="${escAttr(info.title)}"` : '';
+    return `<span class="num"${title}>${f$(info.value)}${info.suffix}</span>`;
 }
 const isTableView = () => TABLE_LEVELS.includes(state.view);
 const curTab = () => state.tabs[state.view] || state.tabs.campaign;
@@ -3806,7 +3833,7 @@ function renderTable() {
         <th class="resizable-th" style="width:44px" data-col-key="toggle"><div class="thi center">On</div></th>
         ${th(isCamp?'Campaign':isAdset?'Ad Set':'Ad','name','left')}
         <th class="resizable-th" data-col-key="status"><div class="thi left">Status</div></th>
-        ${v==='campaign'?th('Verdict','auto_rule_verdict','left'):''}
+        ${v==='campaign'?th('Budget','daily_budget','left'):''}
         ${isRulesCheck?`${th('V1 verdict','v1_verdict','left')}${th('V2 verdict','v2_verdict','left')}`:''}
         ${isAdset?th('Bid','bid_amount','right'):''}
         ${!isCamp?th('Campaign','campaign_name','left'):''}
@@ -3873,10 +3900,10 @@ function renderTable() {
                 </div>
             </div></div></td>
             <td><div class="tdi left">${isOrphan?'':`<div><div class="dlv ${displayStatus} ${accountInactive?'account-muted':''}" title="${esc(pendingTask ? ('Task #' + (pendingTask.taskId || '...')) : (ownDisplayStatus || realStatusLabel))}"><div class="dlv-dot"></div>${esc(realStatusLabel)}</div>${pendingTask?`<div class="dlv-sub" style="color:#9a4b00;font-weight:700">Waiting for ${esc(pendingActionLabel)}</div>${pendingRetryable?`<button class="task-action-btn" style="margin-top:6px" onclick="event.stopPropagation();retryPendingEntityTask('${escAttr(String(row.id))}','${isCamp ? 'campaign' : (isAdset ? 'adset' : 'ad')}',this)">Retry</button>`:''}`:''}${isAd&&realStatus&&realStatus!==ownDisplayStatus?`<div class="dlv-sub">${esc(realStatus)}</div>`:''}${accountInactive?`<div class="dlv-sub">${esc(accountStatusLabel)}</div>`:''}</div>`}</div></td>
-            ${v==='campaign'?savedAutoRuleVerdictCell(row):''}
+            ${v==='campaign'?`<td><div class="tdi left">${campaignBudgetHtml(row)}</div></td>`:''}
             ${isRulesCheck?`${rulesVerdictCell(row,'v1')}${rulesVerdictCell(row,'v2')}`:''}
             ${bidCellHtml}
-            ${!isCamp?`<td><div class="tdi left"><span class="num" style="font-size:11px">${esc(row.campaign_name||'')}</span></div></td>`:''}
+            ${!isCamp?`<td><div class="tdi left"><span class="num" style="font-size:11px;cursor:help" title="${escAttr(campaignBudgetInfo(row)?.title || 'No campaign budget')}">${esc(row.campaign_name||'')}</span></div></td>`:''}
             ${isAd?`<td><div class="tdi left"><span class="num" style="font-size:11px">${esc(row.adset_name||'')}</span></div></td>`:''}
             <td><div class="tdi"><span class="num">${fN(s.impressions)}</span></div></td>
             <td><div class="tdi"><span class="num">${fN(s.clicks)}</span></div></td>
