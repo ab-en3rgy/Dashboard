@@ -1,5 +1,5 @@
 <?php
-// @version 1.0.19
+// @version 1.0.20
 require __DIR__ . '/lib/DB.php';
 require __DIR__ . '/lib/Auth.php';
 
@@ -95,7 +95,7 @@ tr:hover td{background:var(--surface2)}
 .bm-chip.ready strong{color:var(--green)}
 .bm-chip.warn strong{color:var(--amber)}
 .bm-chip.bad strong{color:var(--red)}
-.bm-table{width:100%;border-collapse:collapse;min-width:1020px}
+.bm-table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:1020px}
 .bm-table thead th{position:static}
 .cell-title{font-weight:750;color:var(--text);line-height:1.2;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cell-sub{font-size:11.5px;color:var(--text3);margin-top:2px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -108,7 +108,11 @@ tr:hover td{background:var(--surface2)}
 .reason{color:var(--text2);font-size:12px;max-width:260px;line-height:1.3}
 .check-cell{width:38px;text-align:center}
 .check-cell input,.creative-row input{width:16px;height:16px;accent-color:var(--blue)}
+.bm-table thead th:nth-child(1),.bm-table tbody td:nth-child(1){width:38px}
+.bm-table thead th:nth-child(2),.bm-table tbody td:nth-child(2){width:112px}
 .bm-table thead th:nth-child(4),.bm-table tbody td:nth-child(4){width:92px;text-align:center}
+.bm-table thead th:nth-child(5),.bm-table tbody td:nth-child(5){width:92px;text-align:center}
+.bm-table thead th:nth-child(6),.bm-table tbody td:nth-child(6){width:auto}
 .rc-cell{padding:6px 0;vertical-align:middle}
 .rc-cell-inner{display:grid;width:100%;place-items:center;line-height:0}
 .rc-toggle{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--blue);font:inherit;font-weight:800;cursor:pointer;line-height:1;vertical-align:middle;appearance:none;-webkit-appearance:none}
@@ -479,12 +483,20 @@ function groupHtml(group) {
           <span class="bm-chip warn"><strong>${num(group.warn)}</strong> has GEO</span>
           <span class="bm-chip"><strong>${num(group.active_geo)}</strong> active GEO rows</span>
         </div>
-      </summary>
-      <table class="bm-table">
-        <thead><tr>
-          <th class="check-cell"><input type="checkbox" onchange="toggleVisibleGroup('${esc(group.bm_id)}', this.checked)"></th>
-          <th>Status</th><th>Account</th><th>Active RC</th><th>Active GEO</th><th>Reason</th>
-        </tr></thead>
+    </summary>
+    <table class="bm-table">
+      <colgroup>
+        <col style="width:38px">
+        <col style="width:112px">
+        <col>
+        <col style="width:92px">
+        <col style="width:92px">
+        <col>
+      </colgroup>
+      <thead><tr>
+        <th class="check-cell"><input type="checkbox" onchange="toggleVisibleGroup('${esc(group.bm_id)}', this.checked)"></th>
+        <th>Status</th><th>Account</th><th>Active RC</th><th>Active GEO</th><th>Reason</th>
+      </tr></thead>
         <tbody>
           ${group.rows.map(rowHtml).join('')}
         </tbody>
