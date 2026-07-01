@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.474
+// @version 1.4.475
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -3928,11 +3928,16 @@ function renderTable() {
         const realStatus = realDeliveryStatus(row);
         const ownStatus = normalizedStatus(row.status);
         const ownDisplayStatus = isAd ? ((realStatus && realStatus !== 'ACTIVE') ? realStatus : (ownStatus || realStatus)) : realStatus;
+        const campaignAdsetsActive = isCamp ? Number(row.adsets_active || 0) : 0;
+        const campaignAdsetsTotal = isCamp ? Number(row.adsets_total || 0) : 0;
+        const campaignDisplayStatus = isCamp && campaignAdsetsTotal > 0 && campaignAdsetsActive === 0 && ownDisplayStatus === 'ACTIVE'
+            ? 'DISAPPROVED'
+            : ownDisplayStatus;
         const adsetAdsActive = isAdset ? Number(row.ads_active || 0) : 0;
         const adsetAdsTotal = isAdset ? Number(row.ads_total || 0) : 0;
         const adsetDisplayStatus = isAdset && adsetAdsTotal > 0 && adsetAdsActive === 0 && ownDisplayStatus === 'ACTIVE'
             ? 'DISAPPROVED'
-            : ownDisplayStatus;
+            : campaignDisplayStatus;
         const pendingTask = isCamp
             ? pendingCampaignTasks.get(String(row.id))
             : (isAdset ? pendingAdsetTasks.get(String(row.id)) : (isAd ? pendingAdTasks.get(String(row.id)) : null));
@@ -3944,8 +3949,15 @@ function renderTable() {
         else if (pendingTask?.taskType === 'appeal_ad') pendingActionLabel = pendingTask.targetLabel || 'Ad appeal';
         const isOrphan = row._isOrphan;
         const dlvBaseLabel={ACTIVE:'Active',PAUSED:'Paused',MANUAL_STOP:'Manual stop',PENDING_TASK:'Updating',DELETED:'Deleted',ARCHIVED:'Archived',IN_PROCESS:'Learning',WITH_ISSUES:'Issue',DISAPPROVED:'Disapproved'}[displayStatus]||dlv;
-        const dlvLabel = isAdset && !isOrphan && adsetAdsTotal > 0
-            ? `${dlvBaseLabel} (${adsetAdsActive}/${adsetAdsTotal})`
+        const campaignStatusCount = isCamp && !isOrphan && campaignAdsetsTotal > 0
+            ? `${campaignAdsetsActive}/${campaignAdsetsTotal}`
+            : '';
+        const adsetStatusCount = isAdset && !isOrphan && adsetAdsTotal > 0
+            ? `${adsetAdsActive}/${adsetAdsTotal}`
+            : '';
+        const statusCount = campaignStatusCount || adsetStatusCount;
+        const dlvLabel = statusCount
+            ? `${dlvBaseLabel} (${statusCount})`
             : dlvBaseLabel;
         const realStatusLabel = {
             PENDING_REVIEW: 'PENDING_REVIEW',

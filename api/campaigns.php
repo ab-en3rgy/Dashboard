@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.11
+// @version 1.0.12
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -436,11 +436,30 @@ if ($level === 'campaign') {
                c.ad_account_id,
                aa.name AS account_name, aa.currency, aa.timezone_name, aa.status AS account_status,
                bm.id   AS bm_id, bm.name AS bm_name,
+               COALESCE(ascnt.adsets_active, 0) AS adsets_active,
+               COALESCE(ascnt.adsets_total, 0) AS adsets_total,
                CASE WHEN c.status = 'MANUAL_STOP' OR c.effective_status = 'MANUAL_STOP'
                     THEN 'manual_stop' ELSE NULL END AS manual_status
         FROM campaigns c
         JOIN ad_accounts aa      ON aa.id  = c.ad_account_id
         JOIN business_managers bm ON bm.id = aa.bm_id
+        LEFT JOIN (
+            SELECT
+                s.campaign_id::text AS campaign_id,
+                COUNT(*) AS adsets_total,
+                COUNT(*) FILTER (
+                    WHERE s.status = 'ACTIVE'
+                      AND (s.effective_status = 'ACTIVE' OR s.effective_status IS NULL OR s.effective_status = '')
+                      AND c2.status = 'ACTIVE'
+                      AND (c2.effective_status = 'ACTIVE' OR c2.effective_status IS NULL OR c2.effective_status = '')
+                      AND aa2.status = 1
+                ) AS adsets_active
+            FROM ad_sets s
+            JOIN campaigns c2    ON c2.id = s.campaign_id
+            JOIN ad_accounts aa2 ON aa2.id = s.ad_account_id
+            WHERE s.status != 'DELETED'
+            GROUP BY s.campaign_id
+        ) ascnt ON ascnt.campaign_id = c.id::text
         WHERE {$campaignDeletedSql} 1=1 {$where}
         ORDER BY c.name
         LIMIT 5000
@@ -604,6 +623,8 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
     }
 
     if ($level === 'campaign') {
+        $out['adsets_active'] = (int)($r['adsets_active'] ?? 0);
+        $out['adsets_total'] = (int)($r['adsets_total'] ?? 0);
         $payload = null;
         $payloadRaw = $r['auto_rule_payload'] ?? null;
         if (is_string($payloadRaw) && $payloadRaw !== '') {
