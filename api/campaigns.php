@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.9
+// @version 1.0.11
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -471,11 +471,33 @@ if ($level === 'campaign') {
                c.daily_budget AS campaign_daily_budget,
                c.lifetime_budget AS campaign_lifetime_budget,
                c.status AS campaign_status,
-               c.effective_status AS campaign_effective_status
+               c.effective_status AS campaign_effective_status,
+               COALESCE(adc.ads_active, 0) AS ads_active,
+               COALESCE(adc.ads_total, 0) AS ads_total
         FROM ad_sets s
         JOIN campaigns c          ON c.id  = s.campaign_id
         JOIN ad_accounts aa       ON aa.id = s.ad_account_id
         JOIN business_managers bm ON bm.id = aa.bm_id
+        LEFT JOIN (
+            SELECT
+                a.ad_set_id::text AS ad_set_id,
+                COUNT(*) AS ads_total,
+                COUNT(*) FILTER (
+                    WHERE a.status = 'ACTIVE'
+                      AND (a.effective_status = 'ACTIVE' OR a.effective_status IS NULL OR a.effective_status = '')
+                      AND s2.status = 'ACTIVE'
+                      AND (s2.effective_status = 'ACTIVE' OR s2.effective_status IS NULL OR s2.effective_status = '')
+                      AND c2.status = 'ACTIVE'
+                      AND (c2.effective_status = 'ACTIVE' OR c2.effective_status IS NULL OR c2.effective_status = '')
+                      AND aa2.status = 1
+                ) AS ads_active
+            FROM ads a
+            JOIN ad_sets s2      ON s2.id = a.ad_set_id
+            JOIN campaigns c2    ON c2.id = a.campaign_id
+            JOIN ad_accounts aa2 ON aa2.id = a.ad_account_id
+            WHERE a.status != 'DELETED'
+            GROUP BY a.ad_set_id
+        ) adc ON adc.ad_set_id = s.id::text
         WHERE s.status != 'DELETED'
           AND c.status != 'DELETED' {$where}
         ORDER BY s.name
@@ -601,6 +623,10 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
         $out['campaign_lifetime_budget'] = array_key_exists('campaign_lifetime_budget', $r) && $r['campaign_lifetime_budget'] !== null ? (float)$r['campaign_lifetime_budget'] : null;
         $out['campaign_status'] = $r['campaign_status'] ?? null;
         $out['campaign_effective_status'] = $r['campaign_effective_status'] ?? null;
+    }
+    if ($level === 'adset') {
+        $out['ads_active'] = (int)($r['ads_active'] ?? 0);
+        $out['ads_total'] = (int)($r['ads_total'] ?? 0);
     }
     if ($level === 'ad') {
         $out['adset_id']   = $r['ad_set_id'];
