@@ -1,6 +1,6 @@
 <?php
 // api/campaigns.php
-// @version 1.0.13
+// @version 1.0.14
 // GET /api/campaigns.php?level=campaign&range=today
 // GET /api/campaigns.php?level=campaign&account_id=act_123
 // GET /api/campaigns.php?level=adset&campaign_id=123
@@ -554,6 +554,7 @@ if ($level === 'campaign') {
     $stmt = $db->prepare("
         SELECT a.id::text, a.name, a.status, a.effective_status,
                a.ad_set_id::text, a.campaign_id::text, a.ad_account_id,
+               a.disapproval_reason, a.review_checked_at,
                aa.name AS account_name, aa.currency, aa.timezone_name, aa.status AS account_status,
                bm.id   AS bm_id, bm.name AS bm_name,
                c.name  AS campaign_name,
@@ -666,6 +667,8 @@ $result = array_map(function(array $r) use ($stats, $level, $costBaselineByGeo):
         $out['adset_name'] = $r['adset_name'];
         $out['adset_status'] = $r['adset_status'] ?? null;
         $out['adset_effective_status'] = $r['adset_effective_status'] ?? null;
+        $out['disapproval_reason'] = $r['disapproval_reason'] ?? null;
+        $out['review_checked_at'] = $r['review_checked_at'] ?? null;
     }
     if (isset($r['objective'])) $out['objective'] = $r['objective'];
     if (array_key_exists('manual_status', $r)) {

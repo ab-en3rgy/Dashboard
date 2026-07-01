@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.475
+// @version 1.4.476
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -3971,6 +3971,8 @@ function renderTable() {
         const pendingAgeMs = pendingTask?.startedAt ? Math.max(0, Date.now() - pendingTask.startedAt) : 0;
         const pendingRetryable = !!pendingTask && !!pendingTask.taskId && pendingAgeMs >= 90000;
         const isOn=pendingTask ? pendingTask.desiredStatus === 'ACTIVE' : (isAd ? ownStatus === 'ACTIVE' : isReallyActive(row) && !manualStop), selected=sel.has(String(row.id));
+        const disapprovalReasonFull = isAd ? String(row.disapproval_reason || '').trim() : '';
+        const disapprovalReasonShort = disapprovalReasonFull.length > 180 ? (disapprovalReasonFull.slice(0, 177) + '...') : disapprovalReasonFull;
         const toggleReadonly = !(isCamp || isAdset || isAd);
         const toggleDisabled = accountInactive || toggleReadonly || !!pendingTask;
         const toggleTitle = pendingTask ? `Task #${pendingTask.taskId || '...'} in progress` : (accountInactive ? accountStatusLabel : (toggleReadonly ? 'Read only: control via campaigns' : (manualStop ? 'Manual stop' : '')));
@@ -3992,6 +3994,9 @@ function renderTable() {
                 <button class="ad-appeal-btn" title="${escAttr(canAppealAd ? 'Submit a policy appeal for this disapproved ad' : (pendingTask ? 'Task in progress' : 'Only disapproved ads can be appealed'))}" ${canAppealAd ? `onclick="event.stopPropagation(); appealAd('${escAttr(String(row.id))}')"` : 'disabled'}><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3v18\"/><path d=\"M6 4h11l-2 4 2 4H6\"/></svg></button>
             </span>`
             : '';
+        const statusTitle = pendingTask
+            ? ('Task #' + (pendingTask.taskId || '...'))
+            : ((ownDisplayStatus || realStatusLabel) + (disapprovalReasonFull ? ('\n' + disapprovalReasonFull) : ''));
         html+=`<tr class="${(selected?'sel':'')}${statusClass}${pendingClass}"${isOrphan?' style="opacity:.7"':''}>
         <td><div class="tdi center">${isOrphan?'':'<input type="checkbox" data-id="'+row.id+'" '+(selected?'checked':'')+' onchange="toggleRow(\''+row.id+'\',this)">'}</div></td>
         <td><div class="tdi center">${isOrphan?'':`<button class="tog ${isOn?'on':'off'}" ${toggleDisabled?'disabled':''} ${toggleTitle?'title="'+esc(toggleTitle)+'"':''} ${(!toggleDisabled && (isCamp || isAdset || isAd))?'onclick="toggleStatus(\''+esc(String(row.id))+'\')"':''}></button>`}</div></td>
@@ -4002,7 +4007,7 @@ function renderTable() {
                     <div class="nc-sub">${isOrphan?'':esc(row.id)+'  |  '+(row.account_id||'')+(row.bm_name?' '+row.bm_name:'')}</div>
                 </div>
             </div></div></td>
-            <td><div class="tdi left">${isOrphan?'':`<div><div class="dlv ${displayStatus} ${accountInactive?'account-muted':''}" title="${esc(pendingTask ? ('Task #' + (pendingTask.taskId || '...')) : (ownDisplayStatus || realStatusLabel))}"><div class="dlv-dot"></div>${esc(realStatusLabel)}</div>${pendingTask?`<div class="dlv-sub" style="color:#9a4b00;font-weight:700">Waiting for ${esc(pendingActionLabel)}</div>${pendingRetryable?`<button class="task-action-btn" style="margin-top:6px" onclick="event.stopPropagation();retryPendingEntityTask('${escAttr(String(row.id))}','${isCamp ? 'campaign' : (isAdset ? 'adset' : 'ad')}',this)">Retry</button>`:''}`:''}${isAd&&realStatus&&realStatus!==ownDisplayStatus?`<div class="dlv-sub">${esc(realStatus)}</div>`:''}${accountInactive?`<div class="dlv-sub">${esc(accountStatusLabel)}</div>`:''}</div>`}</div></td>
+            <td><div class="tdi left">${isOrphan?'':`<div><div class="dlv ${displayStatus} ${accountInactive?'account-muted':''}" title="${esc(statusTitle)}"><div class="dlv-dot"></div>${esc(realStatusLabel)}</div>${pendingTask?`<div class="dlv-sub" style="color:#9a4b00;font-weight:700">Waiting for ${esc(pendingActionLabel)}</div>${pendingRetryable?`<button class="task-action-btn" style="margin-top:6px" onclick="event.stopPropagation();retryPendingEntityTask('${escAttr(String(row.id))}','${isCamp ? 'campaign' : (isAdset ? 'adset' : 'ad')}',this)">Retry</button>`:''}`:''}${isAd&&realStatus&&realStatus!==ownDisplayStatus?`<div class="dlv-sub">${esc(realStatus)}</div>`:''}${isAd&&disapprovalReasonShort?`<div class="dlv-sub" title="${escAttr(disapprovalReasonFull)}">${esc(disapprovalReasonShort)}</div>`:''}${accountInactive?`<div class="dlv-sub">${esc(accountStatusLabel)}</div>`:''}</div>`}</div></td>
             ${v==='campaign'?`<td><div class="tdi left">${campaignBudgetHtml(row)}</div></td>`:''}
             ${isRulesCheck?`${rulesVerdictCell(row,'v1')}${rulesVerdictCell(row,'v2')}`:''}
             ${bidCellHtml}

@@ -1,5 +1,6 @@
 <?php
 // api/ext/structure.php
+// @version 1.0.1
 // POST { secret, ad_account_id, campaigns: [...], adsets: [...], ads: [...] }
 // Upsert structure for one account
 
@@ -16,6 +17,63 @@ function normalizeStructureCreatedTime(mixed $value): ?string {
 
 function fallbackCreatedTime(mixed $value): string {
     return normalizeStructureCreatedTime($value) ?? gmdate('c');
+}
+
+function encodeStructureJson(mixed $value): ?string {
+    if ($value === null) return null;
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        return $trimmed === '' ? null : $trimmed;
+    }
+    if (!is_array($value) && !is_object($value)) return null;
+    $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return $json === false ? null : $json;
+}
+
+function flattenStructureReasonCandidates(mixed $value, array &$bucket): void {
+    if ($value === null) return;
+    if (is_string($value) || is_numeric($value) || is_bool($value)) {
+        $text = trim((string)$value);
+        if ($text !== '') $bucket[] = $text;
+        return;
+    }
+    if (!is_array($value)) return;
+
+    $preferredKeys = [
+        'message', 'messages', 'summary', 'error_summary', 'description',
+        'error_description', 'body', 'title', 'reason', 'text',
+        'policy_name', 'policy_names', 'recommendation', 'details'
+    ];
+    foreach ($preferredKeys as $key) {
+        if (array_key_exists($key, $value)) {
+            flattenStructureReasonCandidates($value[$key], $bucket);
+        }
+    }
+    foreach ($value as $item) {
+        if (is_array($item)) flattenStructureReasonCandidates($item, $bucket);
+    }
+}
+
+function extractDisapprovalReason(array $ad): ?string {
+    $candidates = [];
+    flattenStructureReasonCandidates($ad['ad_review_feedback'] ?? null, $candidates);
+    flattenStructureReasonCandidates($ad['issues_info'] ?? null, $candidates);
+
+    $seen = [];
+    $parts = [];
+    foreach ($candidates as $candidate) {
+        $text = preg_replace('/\s+/u', ' ', trim((string)$candidate));
+        if ($text === '' || strlen($text) < 4) continue;
+        $normalizedKey = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+        if (isset($seen[$normalizedKey])) continue;
+        $seen[$normalizedKey] = true;
+        $parts[] = $text;
+        if (count($parts) >= 3) break;
+    }
+
+    if (!$parts) return null;
+    $reason = implode(' | ', $parts);
+    return function_exists('mb_substr') ? mb_substr($reason, 0, 1000, 'UTF-8') : substr($reason, 0, 1000);
 }
 
 function ensureCampaignStub(PDO $db, string $campaignId, string $adAccountId): void {
@@ -69,6 +127,14 @@ $db->exec("
     ALTER TABLE IF EXISTS ad_sets
         ADD COLUMN IF NOT EXISTS bid_amount NUMERIC(15,2),
         ADD COLUMN IF NOT EXISTS bid_strategy_mode TEXT
+");
+
+$db->exec("
+    ALTER TABLE IF EXISTS ads
+        ADD COLUMN IF NOT EXISTS review_feedback_json JSONB,
+        ADD COLUMN IF NOT EXISTS issues_info_json JSONB,
+        ADD COLUMN IF NOT EXISTS disapproval_reason TEXT,
+        ADD COLUMN IF NOT EXISTS review_checked_at TIMESTAMPTZ
 ");
 
 // ── Auto-create account if it does not exist ─────────────────────────
@@ -183,14 +249,20 @@ if ($ads) {
     $stmt = $db->prepare("
         INSERT INTO ads
             (id, ad_set_id, campaign_id, ad_account_id, name,
-             status, effective_status, created_time, updated_time, synced_at)
+             status, effective_status, created_time, updated_time,
+             review_feedback_json, issues_info_json, disapproval_reason, review_checked_at, synced_at)
         VALUES
-            (:id, :adset, :camp, :acc, :name, :status, :eff, :ct, :ut, NOW())
+            (:id, :adset, :camp, :acc, :name, :status, :eff, :ct, :ut, CAST(:review_feedback_json AS jsonb),
+             CAST(:issues_info_json AS jsonb), :disapproval_reason, NOW(), NOW())
         ON CONFLICT (id) DO UPDATE SET
             name             = EXCLUDED.name,
             status           = EXCLUDED.status,
             effective_status = EXCLUDED.effective_status,
             updated_time     = EXCLUDED.updated_time,
+            review_feedback_json = EXCLUDED.review_feedback_json,
+            issues_info_json = EXCLUDED.issues_info_json,
+            disapproval_reason = EXCLUDED.disapproval_reason,
+            review_checked_at = EXCLUDED.review_checked_at,
             synced_at        = NOW()
     ");
 
@@ -203,6 +275,9 @@ if ($ads) {
         $adId    = (string)$a['id'];
         $adSetId = (string)$a['adset_id'];
         $campId  = (string)($a['campaign_id'] ?? 0);
+        $reviewFeedbackJson = encodeStructureJson($a['ad_review_feedback'] ?? null);
+        $issuesInfoJson = encodeStructureJson($a['issues_info'] ?? null);
+        $disapprovalReason = extractDisapprovalReason($a);
         try {
             $stmt->execute([
                 'id'     => $adId,
@@ -214,6 +289,9 @@ if ($ads) {
                 'eff'    => $a['effective_status']  ?? null,
                 'ct'     => $a['created_time']      ?? null,
                 'ut'     => $a['updated_time']      ?? null,
+                'review_feedback_json' => $reviewFeedbackJson,
+                'issues_info_json' => $issuesInfoJson,
+                'disapproval_reason' => $disapprovalReason,
             ]);
         } catch (\Throwable $e) {
             if (!isMissingAdSetForeignKey($e)) {
@@ -230,6 +308,9 @@ if ($ads) {
                 'eff'    => $a['effective_status']  ?? null,
                 'ct'     => $a['created_time']      ?? null,
                 'ut'     => $a['updated_time']      ?? null,
+                'review_feedback_json' => $reviewFeedbackJson,
+                'issues_info_json' => $issuesInfoJson,
+                'disapproval_reason' => $disapprovalReason,
             ]);
         }
         $counts['ads']++;
