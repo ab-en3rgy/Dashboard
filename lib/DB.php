@@ -1,5 +1,6 @@
 <?php
 // lib/DB.php
+// @version 1.0.1
 
 class DB {
     private static ?PDO $instance = null;
@@ -21,6 +22,7 @@ class DB {
             // Always work in UTC at the connection level
             self::$instance->exec("SET timezone = 'UTC'");
             self::ensureInsightsDailySchema(self::$instance);
+            self::ensureAdsSchema(self::$instance);
         }
         return self::$instance;
     }
@@ -36,6 +38,17 @@ class DB {
                 ADD COLUMN IF NOT EXISTS sub_id_14 TEXT,
                 ADD COLUMN IF NOT EXISTS sub_id_15 TEXT,
                 ADD COLUMN IF NOT EXISTS kt_synced_at TIMESTAMPTZ
+        ");
+    }
+
+    private static function ensureAdsSchema(PDO $db): void
+    {
+        $db->exec("
+            ALTER TABLE IF EXISTS ads
+                ADD COLUMN IF NOT EXISTS review_feedback_json JSONB,
+                ADD COLUMN IF NOT EXISTS issues_info_json JSONB,
+                ADD COLUMN IF NOT EXISTS disapproval_reason TEXT,
+                ADD COLUMN IF NOT EXISTS review_checked_at TIMESTAMPTZ
         ");
     }
 
