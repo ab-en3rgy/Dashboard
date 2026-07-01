@@ -1,6 +1,6 @@
 <?php
 // api/ext/tasks.php
-// @version 1.0.4
+// @version 1.0.5
 // POST { secret, action, ... }
 // Actions:
 // - schema
@@ -18,6 +18,7 @@ const TASK_TYPES = [
     'set_campaign_status',
     'set_adset_status',
     'set_ad_status',
+    'appeal_ad',
     'delete_campaign',
     'update_campaign_budget',
     'update_adset_budget',
@@ -135,6 +136,7 @@ function ensureTasksSchema(PDO $db): void {
                 'set_campaign_status',
                 'set_adset_status',
                 'set_ad_status',
+                'appeal_ad',
                 'delete_campaign',
                 'update_campaign_budget',
                 'update_adset_budget',
@@ -171,6 +173,7 @@ function ensureTasksSchema(PDO $db): void {
                     'set_campaign_status',
                     'set_adset_status',
                     'set_ad_status',
+                    'appeal_ad',
                     'delete_campaign',
                     'update_campaign_budget',
                     'update_adset_budget',
@@ -219,6 +222,11 @@ function taskSchema(): array {
             'set_campaign_status' => ['desired_status' => 'ACTIVE|PAUSED'],
             'set_adset_status' => ['desired_status' => 'ACTIVE|PAUSED'],
             'set_ad_status' => ['desired_status' => 'ACTIVE|PAUSED'],
+            'appeal_ad' => [
+                'appeal_comment' => 'appeal text',
+                'one_time' => 'boolean',
+                'source' => 'dashboard_ad_appeal',
+            ],
             'delete_campaign' => ['delete' => 'true'],
             'update_campaign_budget' => ['daily_budget' => 'USD number', 'daily_budget_cents' => 'optional integer'],
             'update_adset_budget' => ['daily_budget' => 'USD number', 'daily_budget_cents' => 'optional integer'],
@@ -299,6 +307,7 @@ function normalizeTaskType(string $type): string {
         'campaign_status', 'set_status', 'set_campaign_status' => 'set_campaign_status',
         'adset_status', 'set_adset_status' => 'set_adset_status',
         'ad_status', 'set_ad_status' => 'set_ad_status',
+        'appeal', 'ad_appeal', 'appeal_ad' => 'appeal_ad',
         'campaign_delete', 'delete', 'delete_campaign' => 'delete_campaign',
         'campaign_budget', 'update_campaign_budget' => 'update_campaign_budget',
         'adset_budget', 'update_adset_budget' => 'update_adset_budget',
@@ -333,6 +342,13 @@ function normalizePayload(string $type, array $payload): array {
         if ($payload['text_scope'] === '') $payload['text_scope'] = 'main_ad_text';
         $payload['preserve_languages'] = (bool)($payload['preserve_languages'] ?? $payload['preserveLanguages'] ?? true);
         unset($payload['refresh_mode'], $payload['textScope'], $payload['preserveLanguages']);
+    }
+
+    if ($type === 'appeal_ad') {
+        $payload['appeal_comment'] = trim((string)($payload['appeal_comment'] ?? $payload['appealComment'] ?? "I'm not sure which policy was violated."));
+        $payload['one_time'] = (bool)($payload['one_time'] ?? $payload['oneTime'] ?? true);
+        $payload['source'] = (string)($payload['source'] ?? 'dashboard_ad_appeal');
+        unset($payload['appealComment'], $payload['oneTime']);
     }
 
     if ($type === 'create_campaign') {
@@ -391,7 +407,7 @@ function validateTask(array $task): void {
     if (in_array($type, ['set_adset_status', 'update_adset_budget', 'update_adset_bid'], true) && !$task['adset_id']) {
         extError(400, 'adset_id required');
     }
-    if (in_array($type, ['set_ad_status', 'refresh_ad_text'], true) && !$task['ad_id']) {
+    if (in_array($type, ['set_ad_status', 'refresh_ad_text', 'appeal_ad'], true) && !$task['ad_id']) {
         extError(400, 'ad_id required');
     }
 
@@ -413,6 +429,9 @@ function validateTask(array $task): void {
     }
     if ($type === 'refresh_ad_text' && ($payload['mode'] ?? '') !== 'append_dot') {
         extError(400, 'refresh_ad_text payload.mode must be append_dot');
+    }
+    if ($type === 'appeal_ad' && !in_array(($payload['one_time'] ?? true), [true, 1, '1', 'true'], true)) {
+        extError(400, 'appeal_ad payload.one_time must be true');
     }
     if ($type === 'create_campaign') {
         foreach (['geo', 'dest_url', 'page_id', 'daily_budget', 'bid_strategy_mode'] as $key) {

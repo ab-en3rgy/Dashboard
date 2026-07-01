@@ -1,6 +1,6 @@
 <?php
 // api/tasks.php
-// @version 1.0.5
+// @version 1.0.7
 // Internal dashboard view of external task queue.
 
 require __DIR__ . '/_bootstrap.php';
@@ -165,7 +165,7 @@ function createDashboardTask(PDO $db, array $me, array $allowedBmIds, array $inp
     if (in_array($taskType, ['ad_status', 'set_ad_status'], true)) $taskType = 'set_ad_status';
     if (in_array($taskType, ['ad_text_refresh', 'edit_ad_text', 'refresh_ad_text'], true)) $taskType = 'refresh_ad_text';
     if (in_array($taskType, ['campaign_delete', 'delete'], true)) $taskType = 'delete_campaign';
-    if (!in_array($taskType, ['set_campaign_status', 'set_adset_status', 'set_ad_status', 'delete_campaign', 'update_adset_bid', 'refresh_ad_text'], true)) {
+    if (!in_array($taskType, ['set_campaign_status', 'set_adset_status', 'set_ad_status', 'delete_campaign', 'update_adset_bid', 'refresh_ad_text', 'appeal_ad'], true)) {
         apiError(400, 'Unsupported task_type');
     }
 
@@ -312,6 +312,10 @@ function createDashboardTask(PDO $db, array $me, array $allowedBmIds, array $inp
         createAdStatusTask($db, $allowed, $createdBy, $priority, $input, $payload);
     }
 
+    if ($taskType === 'appeal_ad') {
+        createAdAppealTask($db, $allowed, $createdBy, $priority, $input, $payload);
+    }
+
     if ($taskType === 'refresh_ad_text') {
         createAdTextRefreshTask($db, $allowed, $createdBy, $priority, $input, $payload);
     }
@@ -437,6 +441,54 @@ function createAdStatusTask(PDO $db, array $allowedBmIds, string $createdBy, int
     apiOk(['task' => formatDashboardTask($row)]);
 }
 
+function createAdAppealTask(PDO $db, array $allowedBmIds, string $createdBy, int $priority, array $input, array $payload): void {
+    $adId = trim((string)($input['ad_id'] ?? $payload['ad_id'] ?? $input['id'] ?? ''));
+    if ($adId === '') apiError(400, 'ad_id required');
+
+    $ad = fetchAdTaskTarget($db, $adId);
+    if (!$ad) apiError(404, 'Ad not found');
+    if (!in_array((string)$ad['bm_id'], $allowedBmIds, true)) apiError(403, 'BM access denied');
+
+    $status = strtoupper(trim((string)($ad['ad_effective_status'] ?? $ad['ad_status'] ?? '')));
+    if ($status !== 'DISAPPROVED') apiError(409, 'Only disapproved ads can be appealed');
+    if (hasOpenAdTask($db, $adId, ['set_ad_status', 'refresh_ad_text', 'appeal_ad'])) {
+        apiError(409, 'Ad task already in progress');
+    }
+
+    $payload = array_merge($payload, [
+        'manual' => true,
+        'source' => 'dashboard_ad_appeal',
+        'appeal_comment' => trim((string)($payload['appeal_comment'] ?? $input['appeal_comment'] ?? "I'm not sure which policy was violated.")),
+        'one_time' => isset($payload['one_time']) ? (bool)$payload['one_time'] : true,
+        'ad_id' => $adId,
+        'ad_name' => $ad['ad_name'],
+        'creative_name' => $ad['ad_name'],
+        'adset_name' => $ad['adset_name'],
+        'campaign_name' => $ad['campaign_name'],
+    ]);
+
+    $row = insertDashboardAdStatusTask($db, [
+        'task_type' => 'appeal_ad',
+        'priority' => $priority,
+        'bm_id' => (string)$ad['bm_id'],
+        'account_id' => (string)$ad['account_id'],
+        'campaign_id' => (string)$ad['campaign_id'],
+        'adset_id' => (string)$ad['adset_id'],
+        'ad_id' => $adId,
+        'payload' => $payload,
+        'created_by' => $createdBy,
+        'max_attempts' => 3,
+    ]);
+    GlobalLogger::logTaskEvent($db, 'task_created', 'pending', $row, [
+        'before_state' => [
+            'status' => $ad['ad_status'] ?? null,
+            'effective_status' => $ad['ad_effective_status'] ?? null,
+        ],
+        'reason' => (string)($payload['reason'] ?? 'Dashboard ad appeal'),
+    ]);
+    apiOk(['task' => formatDashboardTask($row)]);
+}
+
 function createAdTextRefreshTask(PDO $db, array $allowedBmIds, string $createdBy, int $priority, array $input, array $payload): void {
     $adId = trim((string)($input['ad_id'] ?? $payload['ad_id'] ?? $input['id'] ?? ''));
     if ($adId === '') apiError(400, 'ad_id required');
@@ -447,7 +499,7 @@ function createAdTextRefreshTask(PDO $db, array $allowedBmIds, string $createdBy
 
     $status = strtoupper(trim((string)($ad['ad_effective_status'] ?? $ad['ad_status'] ?? '')));
     if ($status !== 'DISAPPROVED') apiError(409, 'Only disapproved ads can be refreshed');
-    if (hasOpenAdTask($db, $adId, ['set_ad_status', 'refresh_ad_text'])) {
+    if (hasOpenAdTask($db, $adId, ['set_ad_status', 'refresh_ad_text', 'appeal_ad'])) {
         apiError(409, 'Ad task already in progress');
     }
 
@@ -856,6 +908,7 @@ function ensureTasksDashboardSchema(PDO $db): void {
                 'set_campaign_status',
                 'set_adset_status',
                 'set_ad_status',
+                'appeal_ad',
                 'delete_campaign',
                 'update_campaign_budget',
                 'update_adset_budget',
@@ -889,6 +942,7 @@ function ensureTasksDashboardSchema(PDO $db): void {
                     'set_campaign_status',
                     'set_adset_status',
                     'set_ad_status',
+                    'appeal_ad',
                     'delete_campaign',
                     'update_campaign_budget',
                     'update_adset_budget',
