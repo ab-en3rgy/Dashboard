@@ -1,11 +1,12 @@
 <?php
 // api/ext/accounts.php
-// @version 1.0.2
+// @version 1.0.3
 // POST { secret, token_hint, bm_id, bm_name, accounts: [...] }
 // bm_id - numeric Business Manager ID from FB
 // Creates the BM if it does not exist, then upserts accounts
 
 require __DIR__.'/_bootstrap.php';
+require_once __DIR__ . '/../../lib/GlobalLogger.php';
 
 $db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS name_locked BOOLEAN NOT NULL DEFAULT FALSE");
 $db->exec("ALTER TABLE business_managers ADD COLUMN IF NOT EXISTS fbtool_account_id BIGINT");
@@ -39,6 +40,15 @@ if (!$bmId) {
     $bmId   = '0';
     $bmName = 'Unknown BM (no bm_id provided)';
 }
+
+$normalizedAccountIds = [];
+foreach ($accounts as $acc) {
+    $candidateId = trim((string)($acc['id'] ?? ''));
+    if ($candidateId === '') continue;
+    if (!str_starts_with($candidateId, 'act_')) $candidateId = 'act_' . $candidateId;
+    $normalizedAccountIds[] = $candidateId;
+}
+$existingAccounts = fetchExistingAccounts($db, $normalizedAccountIds);
 
 // Upsert BM
 $db->prepare("
@@ -118,14 +128,16 @@ foreach ($accounts as $acc) {
     $id = trim((string)($acc['id'] ?? ''));
     if (!$id) continue;
     if (!str_starts_with($id, 'act_')) $id = 'act_'.$id;
+    $previous = $existingAccounts[$id] ?? null;
+    $nextStatus = (int)($acc['status'] ?? 1);
     $accLaunch = array_replace($bodyLaunch, normalizeLaunchFields($acc));
 
     $stmt->execute([
         'id'     => $id,
         'bm_id'  => $bmId,
         'name'   => trim($acc['name'] ?? $id),
-        'status' => (int)($acc['status'] ?? 1),
-        'disabled_date' => (int)($acc['status'] ?? 1) === 1 ? null : date('Y-m-d'),
+        'status' => $nextStatus,
+        'disabled_date' => $nextStatus === 1 ? null : date('Y-m-d'),
         'tz'     => $acc['timezone_name'] ?? 'UTC',
         'cur'    => $acc['currency']      ?? 'USD',
         'cap'    => isset($acc['spend_cap'])    ? (float)$acc['spend_cap']    : null,
@@ -139,6 +151,24 @@ foreach ($accounts as $acc) {
         'launch_source_raw' => $accLaunch['launch_source_raw'],
     ]);
     $upserted++;
+
+    if ($nextStatus !== 1 && shouldLogAccountBan($previous, $nextStatus)) {
+        logAccountBanEvent($db, [
+            'bm_id' => $bmId,
+            'bm_name' => $bmName,
+            'account_id' => $id,
+            'account_name' => trim((string)($acc['name'] ?? $id)),
+            'previous' => $previous,
+            'launch' => $accLaunch,
+        ]);
+    }
+
+    $existingAccounts[$id] = [
+        'id' => $id,
+        'name' => trim((string)($acc['name'] ?? $id)),
+        'status' => $nextStatus,
+        'bm_id' => $bmId,
+    ];
 }
 
 $activeIds = $db->query("SELECT id FROM ad_accounts WHERE status = 1")->fetchAll(PDO::FETCH_COLUMN);
@@ -216,4 +246,211 @@ function normalizeLaunchRaw(mixed $raw): ?string
 function boolToSqlBool(bool $value): string
 {
     return $value ? 'TRUE' : 'FALSE';
+}
+
+function fetchExistingAccounts(PDO $db, array $accountIds): array
+{
+    $accountIds = array_values(array_unique(array_filter(array_map('strval', $accountIds))));
+    if (!$accountIds) {
+        return [];
+    }
+
+    $params = [];
+    $placeholders = [];
+    foreach ($accountIds as $i => $accountId) {
+        $key = ':account_' . $i;
+        $placeholders[] = $key;
+        $params[$key] = $accountId;
+    }
+
+    $stmt = $db->prepare("
+        SELECT id, bm_id::text AS bm_id, name, status, disabled_date
+        FROM ad_accounts
+        WHERE id IN (" . implode(',', $placeholders) . ")
+    ");
+    $stmt->execute($params);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $rows[(string)$row['id']] = $row;
+    }
+    return $rows;
+}
+
+function shouldLogAccountBan(?array $previous, int $nextStatus): bool
+{
+    if ($nextStatus === 1) {
+        return false;
+    }
+    if ($previous === null) {
+        return true;
+    }
+    return (int)($previous['status'] ?? 1) === 1;
+}
+
+function logAccountBanEvent(PDO $db, array $context): void
+{
+    $snapshot = fetchAccountBanSnapshot($db, (string)$context['account_id']);
+    $bmId = (string)($context['bm_id'] ?? ($snapshot['bm_id'] ?? ''));
+    $accountId = (string)($context['account_id'] ?? '');
+    $launch = $context['launch'] ?? [];
+    $previous = $context['previous'] ?? null;
+
+    $payload = [
+        'disabled_date' => $snapshot['disabled_date'] ?? gmdate('Y-m-d'),
+        'currency' => $snapshot['currency'] ?? 'USD',
+        'balance' => isset($snapshot['balance']) ? (float)$snapshot['balance'] : null,
+        'amount_spent' => isset($snapshot['amount_spent']) ? (float)$snapshot['amount_spent'] : null,
+        'spend_cap' => isset($snapshot['spend_cap']) ? (float)$snapshot['spend_cap'] : null,
+        'launch_status' => $snapshot['launch_status'] ?? ($launch['launch_status'] ?? null),
+        'launch_restricted' => isset($snapshot['launch_restricted']) ? (bool)$snapshot['launch_restricted'] : (bool)($launch['launch_restricted'] ?? false),
+        'launch_block_reason' => $snapshot['launch_block_reason'] ?? ($launch['launch_block_reason'] ?? null),
+        'campaigns' => [
+            'active_count' => (int)($snapshot['campaigns_active'] ?? 0),
+            'total_count' => (int)($snapshot['campaigns_total'] ?? 0),
+            'top' => $snapshot['top_campaigns'] ?? [],
+        ],
+        'stats_7d' => [
+            'spend' => (float)($snapshot['spend_7d'] ?? 0),
+            'deps' => (int)($snapshot['deps_7d'] ?? 0),
+            'revenue' => (float)($snapshot['revenue_7d'] ?? 0),
+        ],
+        'stats_30d' => [
+            'spend' => (float)($snapshot['spend_30d'] ?? 0),
+            'deps' => (int)($snapshot['deps_30d'] ?? 0),
+            'revenue' => (float)($snapshot['revenue_30d'] ?? 0),
+        ],
+    ];
+
+    $reason = trim((string)($payload['launch_block_reason'] ?? ''));
+    if ($reason === '') {
+        $reason = 'Account status changed to banned.';
+    }
+
+    GlobalLogger::log($db, [
+        'source' => 'sync_extension',
+        'actor' => 'api/ext/accounts',
+        'event_type' => 'account_banned',
+        'entity_type' => 'account',
+        'entity_id' => $accountId,
+        'bm_id' => $bmId,
+        'account_id' => $accountId,
+        'status' => 'warn',
+        'action' => 'status_changed_to_banned',
+        'reason' => $reason,
+        'before_state' => [
+            'status' => $previous !== null ? (int)($previous['status'] ?? 1) : null,
+            'name' => $previous['name'] ?? null,
+        ],
+        'after_state' => [
+            'status' => (int)($snapshot['status'] ?? 0),
+            'name' => $snapshot['account_name'] ?? ($context['account_name'] ?? $accountId),
+            'disabled_date' => $payload['disabled_date'],
+        ],
+        'payload' => $payload,
+        'result' => [
+            'bm_name' => $snapshot['bm_name'] ?? ($context['bm_name'] ?? ''),
+            'account_name' => $snapshot['account_name'] ?? ($context['account_name'] ?? $accountId),
+        ],
+    ]);
+}
+
+function fetchAccountBanSnapshot(PDO $db, string $accountId): array
+{
+    $stmt = $db->prepare("
+        SELECT
+            aa.id AS account_id,
+            aa.name AS account_name,
+            aa.status,
+            aa.disabled_date,
+            aa.currency,
+            aa.balance,
+            aa.amount_spent,
+            aa.spend_cap,
+            aa.launch_status,
+            aa.launch_restricted,
+            aa.launch_block_reason,
+            bm.id::text AS bm_id,
+            bm.name AS bm_name,
+            COALESCE(camp.campaigns_total, 0) AS campaigns_total,
+            COALESCE(camp.campaigns_active, 0) AS campaigns_active,
+            COALESCE(stats.spend_7d, 0) AS spend_7d,
+            COALESCE(stats.deps_7d, 0) AS deps_7d,
+            COALESCE(stats.revenue_7d, 0) AS revenue_7d,
+            COALESCE(stats.spend_30d, 0) AS spend_30d,
+            COALESCE(stats.deps_30d, 0) AS deps_30d,
+            COALESCE(stats.revenue_30d, 0) AS revenue_30d
+        FROM ad_accounts aa
+        LEFT JOIN business_managers bm ON bm.id = aa.bm_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE COALESCE(c.status, '') <> 'DELETED') AS campaigns_total,
+                COUNT(*) FILTER (
+                    WHERE c.status = 'ACTIVE'
+                      AND COALESCE(NULLIF(c.effective_status, ''), 'ACTIVE') = 'ACTIVE'
+                ) AS campaigns_active
+            FROM campaigns c
+            WHERE c.ad_account_id = aa.id
+        ) camp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(SUM(CASE WHEN id.date >= CURRENT_DATE - INTERVAL '6 days' THEN id.spend ELSE 0 END), 0) AS spend_7d,
+                COALESCE(SUM(CASE WHEN id.date >= CURRENT_DATE - INTERVAL '6 days' THEN id.deps ELSE 0 END), 0) AS deps_7d,
+                COALESCE(SUM(CASE WHEN id.date >= CURRENT_DATE - INTERVAL '6 days' THEN id.revenue ELSE 0 END), 0) AS revenue_7d,
+                COALESCE(SUM(id.spend), 0) AS spend_30d,
+                COALESCE(SUM(id.deps), 0) AS deps_30d,
+                COALESCE(SUM(id.revenue), 0) AS revenue_30d
+            FROM insights_daily id
+            JOIN ads a ON a.id = id.ad_id
+            WHERE a.ad_account_id = aa.id
+              AND id.date >= CURRENT_DATE - INTERVAL '29 days'
+        ) stats ON TRUE
+        WHERE aa.id = :account_id
+        LIMIT 1
+    ");
+    $stmt->execute([':account_id' => $accountId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $row['top_campaigns'] = fetchBanTopCampaigns($db, $accountId);
+    return $row;
+}
+
+function fetchBanTopCampaigns(PDO $db, string $accountId): array
+{
+    $stmt = $db->prepare("
+        SELECT
+            c.id,
+            c.name,
+            c.status,
+            c.effective_status,
+            CASE
+                WHEN c.status = 'ACTIVE'
+                 AND COALESCE(NULLIF(c.effective_status, ''), 'ACTIVE') = 'ACTIVE'
+                THEN TRUE ELSE FALSE
+            END AS is_active,
+            COALESCE(SUM(id.spend), 0) AS spend_30d,
+            COALESCE(SUM(id.deps), 0) AS deps_30d
+        FROM campaigns c
+        LEFT JOIN ads a ON a.campaign_id = c.id
+        LEFT JOIN insights_daily id
+            ON id.ad_id = a.id
+           AND id.date >= CURRENT_DATE - INTERVAL '29 days'
+        WHERE c.ad_account_id = :account_id
+          AND COALESCE(c.status, '') <> 'DELETED'
+        GROUP BY c.id, c.name, c.status, c.effective_status
+        ORDER BY is_active DESC, spend_30d DESC, c.name ASC
+        LIMIT 3
+    ");
+    $stmt->execute([':account_id' => $accountId]);
+
+    return array_map(static function (array $row): array {
+        return [
+            'id' => (string)($row['id'] ?? ''),
+            'name' => (string)($row['name'] ?? ''),
+            'status' => (string)($row['status'] ?? ''),
+            'effective_status' => (string)($row['effective_status'] ?? ''),
+            'is_active' => !empty($row['is_active']),
+            'spend_30d' => (float)($row['spend_30d'] ?? 0),
+            'deps_30d' => (int)($row['deps_30d'] ?? 0),
+        ];
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }

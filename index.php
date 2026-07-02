@@ -1,6 +1,6 @@
 <?php
 // index.php
-// @version 1.4.476
+// @version 1.4.477
 require __DIR__.'/lib/DB.php';
 require __DIR__.'/lib/Auth.php';
 require __DIR__.'/lib/Timezone.php';
@@ -240,9 +240,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 /* TABLE */
 .tblwrap{flex:1;overflow:auto}
-#creoWrap,#creativeCalendarWrap,#campsCalendarWrap,#geoWrap,#topcreoWrap,#streamsWrap,#offersWrap{width:100%}
-#creoTbl,#creativeCalendarTbl,#campsCalendarTbl,#geoTbl,#topcreoTbl,#streamsTbl,#offersTbl{width:100%;min-width:100%}
-#creoTbl table,#creativeCalendarTbl table,#campsCalendarTbl table,#geoTbl table,#topcreoTbl table,#streamsTbl table,#offersTbl table{width:100%}
+#creoWrap,#creativeCalendarWrap,#campsCalendarWrap,#geoWrap,#topcreoWrap,#streamsWrap,#offersWrap,#banLogWrap{width:100%}
+#creoTbl,#creativeCalendarTbl,#campsCalendarTbl,#geoTbl,#topcreoTbl,#streamsTbl,#offersTbl,#banLogTbl{width:100%;min-width:100%}
+#creoTbl table,#creativeCalendarTbl table,#campsCalendarTbl table,#geoTbl table,#topcreoTbl table,#streamsTbl table,#offersTbl table,#banLogTbl table{width:100%}
 .offers-grid{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(420px,.85fr);gap:0;height:100%;min-height:0}
 .offers-left{border-right:1px solid var(--border);overflow:auto;min-height:0}
 .offers-tabs{position:sticky;top:0;z-index:2;display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface);overflow-x:auto}
@@ -377,6 +377,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .task-json{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;color:var(--text2)}
 .task-json.clickable{cursor:pointer}
 .task-json.expanded{max-width:760px;white-space:pre-wrap;overflow:visible;text-overflow:clip;line-height:1.35;word-break:break-word}
+.banlog-meta{font-size:10.5px;color:var(--text3);margin-top:3px;line-height:1.3}
+.banlog-campaign{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;background:var(--bg);border:1px solid var(--border-light);font-size:11px;font-weight:700;color:var(--text2);margin:3px 6px 0 0}
+.banlog-campaign.live{background:var(--green-bg);border-color:#b9ebca;color:var(--green)}
+.banlog-reason{max-width:320px;white-space:normal;line-height:1.35}
 .task-error{max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--red);font-size:11px;font-weight:700}
 .task-action-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .task-action-btn{border:1.5px solid var(--border);background:var(--surface);color:var(--blue);border-radius:var(--r2);padding:4px 9px;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap}
@@ -782,6 +786,10 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     Rules Check
   </div>
+  <div class="lnav-item" id="lnav-banlog" onclick="setView('banlog')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
+    BanLog
+  </div>
   <div class="lnav-right">
     <span class="tz-badge" id="tzBadge"></span>
     <div class="dd-wrap" id="ddRangeWrap">
@@ -1010,6 +1018,14 @@ document.querySelector('.tb-logo').addEventListener('click', function(e) {
   </div>
   <div id="tasksTbl" style="overflow:auto;flex:1"></div>
 </div>
+<div id="banLogWrap" style="display:none;flex:1;overflow:hidden;background:var(--surface);flex-direction:column">
+  <div class="tasks-toolbar">
+    <span style="font-size:12px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.4px">Ban log</span>
+    <span class="dim">Rows appear when the dashboard first sees an account become banned.</span>
+    <span class="dim" id="banLogSummary"></span>
+  </div>
+  <div id="banLogTbl" style="overflow:auto;flex:1"></div>
+</div>
 <div id="trendsWrap" style="display:none;flex:1;overflow:hidden;background:var(--surface);flex-direction:column">
   <div id="trendsChart" style="padding:16px;border-bottom:1px solid var(--border);flex-shrink:0;min-height:300px"><canvas id="trendsCanvas" style="max-height:320px"></canvas></div>
   <div id="trendsTabs" style="display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;padding:0 16px">
@@ -1108,12 +1124,12 @@ const RANGE_LABELS = {today:'Today',yesterday:'Yesterday',yesterday_today:'Yeste
 const SORT_ICO = `<span class="sort-ico"><svg viewBox="0 0 8 5" fill="currentColor"><path d="M4 0l4 5H0z"/></svg><svg viewBox="0 0 8 5" fill="currentColor"><path d="M4 5L0 0h8z"/></svg></span>`;
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TABLE_LEVELS = ['bm','account','campaign','rules_check','adset','ad'];
-const TABLE_VIEW_CONTROLS = new Set(['bm','account','campaign','rules_check','adset','ad','month','creo','topcreo','creative_calendar','camps_calendar','streams','offers','geo','geodiff','geocabs','tasks']);
+const TABLE_VIEW_CONTROLS = new Set(['bm','account','campaign','rules_check','adset','ad','month','creo','topcreo','creative_calendar','camps_calendar','streams','offers','geo','geodiff','geocabs','tasks','banlog']);
 const FILTER_ORDER = ['geo','bm_id','account_id','launch_date','campaign_id','adset_id','ad_name','v1_verdict','v2_verdict'];
 const ACCOUNT_FILTER_ACTIVE = '__all_active__';
 const ACCOUNT_FILTER_ALL = '__all_accounts__';
 const REPORT_VISIBILITY_VIEWS = new Set(['geo','campaign','rules_check','adset','ad','creo','topcreo']);
-const VIEW_LEVEL   = {bm:0, bm_cards:-1, account:1, campaign:2, rules_check:2, adset:3, ad:4, creo:5, topcreo:5, creative_calendar:5, camps_calendar:5, streams:-1, geo:-1, month:-1, geotrends:-1, geodiff:-1, trends:-1, geocabs:-1, tasks:-1};
+const VIEW_LEVEL   = {bm:0, bm_cards:-1, account:1, campaign:2, rules_check:2, adset:3, ad:4, creo:5, topcreo:5, creative_calendar:5, camps_calendar:5, streams:-1, geo:-1, month:-1, geotrends:-1, geodiff:-1, trends:-1, geocabs:-1, tasks:-1, banlog:-1};
 const REPORT_FILTERS_BY_VIEW = {
     bm: ['geo', 'delivery'],
     account: ['geo', 'bm_id', 'delivery'],
@@ -1133,6 +1149,7 @@ const REPORT_FILTERS_BY_VIEW = {
     camps_calendar: ['geo'],
     geocabs: [],
     tasks: [],
+    banlog: [],
     rules_check: ['geo', 'bm_id', 'account_id', 'delivery', 'launch_date', 'ad_name', 'v1_verdict', 'v2_verdict'],
 };
 const STREAMS_COLUMN_ORDER_KEY = 'fb_ads_dashboard_streams_column_order_v1';
@@ -1163,7 +1180,7 @@ const STREAMS_COLUMN_DEFS = {
 
 // -- STATE ----------------------------------------------------
 const state = {
-    view:  'campaign', // 'geo'|'month'|'creo'|'campaign'|'adset'|'ad'|'bm'|'bm_cards'|'account'|'tasks'
+    view:  'campaign', // 'geo'|'month'|'creo'|'campaign'|'adset'|'ad'|'bm'|'bm_cards'|'account'|'tasks'|'banlog'
     range: 'today',
     customDate: null,
     filters: {
@@ -1191,6 +1208,7 @@ const state = {
         trends:   { tab: 'campaign', sel: '' },
         geocabs:  { bm_id: '' },
         tasks:    { search: '', status: '', sortCol: 'created_at', sortDir: 'desc' },
+        banlog:   { search: '', sortCol: 'created_at', sortDir: 'desc' },
         bm_cards: { period: '14d' },
         bm:       { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
         account:  { search: '', delivery: null, sortCol: 'spend',       sortDir: 'desc' },
@@ -1204,7 +1222,7 @@ const state = {
 const TAB_DEFAULTS = JSON.parse(JSON.stringify(state.tabs));
 
 // Data caches
-let rows = [], creoRows = [], creativeCalendarRows = [], creativeCalendarMeta = {}, campsCalendarRows = [], campsCalendarMeta = {}, geoRows = [], geoDiffRows = [], monthRows = [], monthPeriods = [], monthPeriodsKey = '', accounts = [], bmCardRows = [], streamRowsAll = [], streamRows = [], taskRows = [], taskMeta = {}, _topCreoFlat = [];
+let rows = [], creoRows = [], creativeCalendarRows = [], creativeCalendarMeta = {}, campsCalendarRows = [], campsCalendarMeta = {}, geoRows = [], geoDiffRows = [], monthRows = [], monthPeriods = [], monthPeriodsKey = '', accounts = [], bmCardRows = [], streamRowsAll = [], streamRows = [], taskRows = [], taskMeta = {}, banLogRows = [], _topCreoFlat = [];
 let adsetBidEditor = null;
 let creativePreviewMap = null;
 let reportFilterOptions = {geos:[], bms:[], accounts:[], launch_dates:[], campaigns:[], adsets:[], creatives:[]};
@@ -2061,6 +2079,7 @@ function setView(v, skipLoad=false) {
     document.getElementById('trendsWrap').style.display      = v==='trends'      ? 'flex'  : 'none';
     document.getElementById('geocabsWrap').style.display     = v==='geocabs'     ? 'flex'  : 'none';
     document.getElementById('tasksWrap').style.display       = v==='tasks'       ? 'flex'  : 'none';
+    document.getElementById('banLogWrap').style.display      = v==='banlog'      ? 'flex'  : 'none';
 
     // Restore tab state
     const ts = curTab();
@@ -2147,6 +2166,7 @@ function reload() {
     else if (v === 'geocabs')    loadGeocabsData();
     else if (v === 'bm_cards') loadBmCardsData();
     else if (v === 'tasks') loadTasksData();
+    else if (v === 'banlog') loadBanLogData();
     else if (v === 'trends') loadTrendsData();
     else loadData();
 }
@@ -2295,7 +2315,8 @@ function applySearch() {
     curTab().search = q;
     document.getElementById('clearBtn').style.display = q ? '' : 'none';
     pushURL({replace:true});
-    renderCurrentTable();
+    if (state.view === 'banlog') loadBanLogData();
+    else renderCurrentTable();
 }
 
 function handleSearchKey(e) {
@@ -2309,7 +2330,8 @@ function clearSearch() {
     curTab().search = '';
     document.getElementById('clearBtn').style.display = 'none';
     pushURL({replace:true});
-    renderCurrentTable();
+    if (state.view === 'banlog') loadBanLogData();
+    else renderCurrentTable();
 }
 
 function clearFilters() {
@@ -2333,6 +2355,7 @@ function renderCurrentTable() {
     else if (v === 'geo') renderGeoTable();
     else if (v === 'geodiff') renderGeoDiffTable();
     else if (v === 'tasks') renderTasksTable();
+    else if (v === 'banlog') renderBanLogTable();
     else if ((v === 'bm' || v === 'account') && window._lastAccts) renderAccountsTable(window._lastAccts);
     else renderTable();
 }
@@ -2652,7 +2675,9 @@ function renderSearchBar() {
     if (adLbl)    adLbl.textContent    = 'Ads';
     if (srch) srch.placeholder = state.view === 'tasks'
         ? 'Search by task #, ID, payload, error...'
-        : 'Search by name, ID...';
+        : state.view === 'banlog'
+            ? 'Search by BM, account, campaign, reason...'
+            : 'Search by name, ID...';
 }
 
 function taskStatusLabel(status) {
@@ -2952,6 +2977,122 @@ function renderTasksTable() {
             <td><div class="tdi left"><span class="num">${esc(taskTime(row.locked_at))}</span></div></td>
             <td><div class="tdi left"><div class="task-error" title="${escAttr(row.error || '')}">${esc(row.error || '-')}</div></div></td>
             <td><div class="tdi left">${taskActionHtml(row)}</div></td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    box.innerHTML = html;
+}
+
+function banLogTh(label, col, align='left') {
+    const ts = state.tabs.banlog;
+    const active = ts.sortCol === col;
+    const dir = active ? ts.sortDir : '';
+    return `<th><div class="thi ${align === 'left' ? 'left' : ''}" onclick="sortBanLogBy('${col}')">
+        ${align === 'left' ? label : ''}<span class="sort-ico ${dir}">${SORT_ICO}</span>${align !== 'left' ? label : ''}
+    </div></th>`;
+}
+
+function sortBanLogBy(col) {
+    const ts = state.tabs.banlog;
+    ts.sortDir = ts.sortCol === col ? (ts.sortDir === 'desc' ? 'asc' : 'desc') : 'desc';
+    ts.sortCol = col;
+    pushURL({replace:true});
+    renderBanLogTable();
+}
+
+async function loadBanLogData() {
+    const box = document.getElementById('banLogTbl');
+    if (!box) return;
+    box.innerHTML = SPIN;
+    try {
+        const ts = state.tabs.banlog;
+        const params = new URLSearchParams({limit: 300});
+        if (ts.search) params.set('q', ts.search);
+        const res = await fetch('/api/ban_log.php?' + params.toString());
+        const json = await readApiJson(res, 'ban log');
+        if (!json.ok) throw new Error(json.error || 'API error');
+        banLogRows = json.data?.rows || [];
+        renderBanLogTable();
+    } catch (e) {
+        box.innerHTML = `<div class="tbl-empty">Error: ${esc(e.message)}</div>`;
+    }
+}
+
+function banLogCampaignsHtml(row) {
+    const campaigns = Array.isArray(row?.campaigns?.top) ? row.campaigns.top : [];
+    if (!campaigns.length) return '<span class="dim">No campaign details</span>';
+    return campaigns.map(c => {
+        const cls = c?.is_active ? 'banlog-campaign live' : 'banlog-campaign';
+        const spend = Number(c?.spend_30d || 0);
+        const deps = Number(c?.deps_30d || 0);
+        return `<span class="${cls}" title="${escAttr((c?.status || '-') + ' / ' + (c?.effective_status || '-'))}">
+            ${esc(c?.name || c?.id || '-')}
+            <span class="num">${spend > 0 ? f$(spend) : '-'}</span>
+            <span class="num">${deps > 0 ? deps + ' deps' : '0 deps'}</span>
+        </span>`;
+    }).join('');
+}
+
+function renderBanLogTable() {
+    const box = document.getElementById('banLogTbl');
+    if (!box) return;
+    const summary = document.getElementById('banLogSummary');
+    if (summary) summary.textContent = `Shown: ${banLogRows.length}`;
+
+    const ts = state.tabs.banlog;
+    let rowsView = [...banLogRows];
+
+    rowsView.sort((a, b) => {
+        const col = ts.sortCol || 'created_at';
+        const getVal = (row) => {
+            if (col === 'bm_name') return row.bm_name || row.bm_id || '';
+            if (col === 'account_name') return row.account_name || row.account_id || '';
+            if (col === 'campaigns.active_count') return Number(row?.campaigns?.active_count || 0);
+            if (col === 'stats_7d.deps') return Number(row?.stats_7d?.deps || 0);
+            if (col === 'stats_30d.spend') return Number(row?.stats_30d?.spend || 0);
+            return row?.[col] ?? '';
+        };
+        const va = getVal(a);
+        const vb = getVal(b);
+        const cmpVal = (typeof va === 'number' || typeof vb === 'number')
+            ? Number(va || 0) - Number(vb || 0)
+            : String(va || '').localeCompare(String(vb || ''));
+        return ts.sortDir === 'asc' ? cmpVal : -cmpVal;
+    });
+
+    if (!rowsView.length) {
+        box.innerHTML = '<div class="tbl-empty">No ban events yet</div>';
+        return;
+    }
+
+    let html = `<table><thead><tr>
+        ${banLogTh('Detected','created_at')}
+        ${banLogTh('BM','bm_name')}
+        ${banLogTh('Account','account_name')}
+        ${banLogTh('7D deps','stats_7d.deps','right')}
+        ${banLogTh('30D spend','stats_30d.spend','right')}
+        ${banLogTh('Campaigns','campaigns.active_count','right')}
+        <th><div class="thi left">Recent campaigns</div></th>
+        <th><div class="thi left">Reason</div></th>
+    </tr></thead><tbody>`;
+
+    rowsView.forEach(row => {
+        const campaigns = row.campaigns || {};
+        const stats7d = row.stats_7d || {};
+        const stats30d = row.stats_30d || {};
+        const activeCount = Number(campaigns.active_count || 0);
+        const totalCount = Number(campaigns.total_count || 0);
+        const reason = row.launch_block_reason || row.reason || '-';
+        html += `<tr>
+            <td><div class="tdi left"><div><span class="num">${esc(taskTime(row.created_at))}</span><div class="banlog-meta">Disabled: ${esc(row.disabled_date || '-')}</div></div></div></td>
+            <td><div class="tdi left"><div><div class="task-target-main">${esc(row.bm_name || row.bm_id || '-')}</div><div class="banlog-meta"><span class="num">${esc(row.bm_id || '-')}</span></div></div></div></td>
+            <td><div class="tdi left"><div><div class="task-target-main">${esc(row.account_name || row.account_id || '-')}</div><div class="banlog-meta"><span class="num">${esc(row.account_id || '-')}</span> · ${esc(row.currency || 'USD')} balance ${row.balance !== null && row.balance !== undefined ? esc(f$(row.balance)) : '-'}</div></div></div></td>
+            <td><div class="tdi"><div><span class="num">${fN(stats7d.deps || 0)}</span><div class="banlog-meta">${Number(stats7d.spend || 0) > 0 ? esc(f$(stats7d.spend)) : '-'}</div></div></div></td>
+            <td><div class="tdi"><div><span class="num">${Number(stats30d.spend || 0) > 0 ? esc(f$(stats30d.spend)) : '-'}</span><div class="banlog-meta">${fN(stats30d.deps || 0)} deps / ${Number(stats30d.revenue || 0) > 0 ? esc(f$(stats30d.revenue)) : '-'}</div></div></div></td>
+            <td><div class="tdi"><div><span class="num">${fN(activeCount)} / ${fN(totalCount)}</span><div class="banlog-meta">${row.launch_status ? esc(row.launch_status) : 'status n/a'}</div></div></div></td>
+            <td><div class="tdi left">${banLogCampaignsHtml(row)}</div></td>
+            <td><div class="tdi left"><div class="banlog-reason">${esc(reason)}</div></div></td>
         </tr>`;
     });
 
@@ -7340,6 +7481,7 @@ function syncRouteUI() {
     document.getElementById('trendsWrap').style.display      = state.view==='trends'      ?'flex':'none';
     document.getElementById('geocabsWrap').style.display     = state.view==='geocabs'     ?'flex':'none';
     document.getElementById('tasksWrap').style.display       = state.view==='tasks'       ?'flex':'none';
+    document.getElementById('banLogWrap').style.display      = state.view==='banlog'      ?'flex':'none';
 
     const trendCamp = document.getElementById('trendTab-campaign');
     const trendAcc = document.getElementById('trendTab-account');
